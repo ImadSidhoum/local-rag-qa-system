@@ -8,7 +8,7 @@ End-to-end local RAG project using:
 - `Sentence-Transformers` embeddings
 - `ChromaDB` local persistent vector store
 - `Ollama` local open-source LLM runtime
-- `Langfuse` (optional) for local/self-hosted tracing
+- `Langfuse` self-hosted stack (web + worker + db/storage) with optional tracing
 
 This repository answers technical questions over a small PDF corpus and returns grounded answers with explicit source citations (`source + page + chunk_id`).
 
@@ -49,7 +49,6 @@ Commands:
 ```bash
 bash data/download_corpus.sh
 docker compose up --build -d
-python3 scripts/ingest.py --backend-url http://localhost:8000
 ```
 
 Health check:
@@ -57,6 +56,12 @@ Health check:
 ```bash
 curl http://localhost:8000/health
 ```
+
+Open:
+- Frontend: `http://localhost:5173`
+- Langfuse UI: `http://localhost:3000`
+
+Then ingest directly from frontend using the `Ingest Corpus` button.
 
 ## 4) Query the System
 
@@ -142,19 +147,30 @@ Main adjustable knobs:
 - Ollama model and fallback model
 - Langfuse tracing flags/keys
 
-## 8) Langfuse Tracing (Optional)
+## 8) Langfuse (Self-Hosted + Optional Tracing)
 
-Langfuse is integrated via LangChain callbacks and is disabled by default.
+Langfuse services are included in `docker compose` and launch with the default stack.
 
-Set environment variables (for your local/self-hosted Langfuse instance):
+To enable backend tracing:
+1. Open `http://localhost:3000` and create/login to Langfuse.
+2. Create a project and copy the project public/secret API keys.
+3. Create `.env` from `.env.example` (if needed) and set:
 
 ```bash
-export LANGFUSE_ENABLED=true
-export LANGFUSE_HOST=http://localhost:3000
-export LANGFUSE_PUBLIC_KEY=your_public_key
-export LANGFUSE_SECRET_KEY=your_secret_key
+LANGFUSE_ENABLED=true
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+```
+
+4. Rebuild backend:
+
+```bash
 docker compose up -d --build backend
 ```
+
+Notes:
+- In Docker, backend should use `LANGFUSE_HOST=http://langfuse-web:3000` (default in `.env.example`).
+- If running backend outside Docker, set `LANGFUSE_HOST=http://localhost:3000`.
 
 ## 9) Troubleshooting
 
@@ -181,8 +197,17 @@ docker compose up -d --build backend
 
 Run ingestion first:
 
+Use the frontend `Ingest Corpus` button, or run:
+
 ```bash
 python3 scripts/ingest.py --backend-url http://localhost:8000
+```
+
+### Langfuse services are not up
+
+```bash
+docker compose ps
+docker compose logs --tail=120 langfuse-web langfuse-worker
 ```
 
 ### Full reset

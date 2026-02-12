@@ -14,7 +14,7 @@ The file is not committed directly; instead, `data/download_corpus.sh` provides 
 Orchestration stack:
 - `LangGraph`: query flow graph (`retrieve -> gate -> generate`)
 - `LangChain`: prompt templates + Ollama chat model invocation
-- `Langfuse`: optional tracing through LangChain callbacks
+- `Langfuse`: self-hosted observability stack in Docker Compose + optional tracing callbacks
 - `uv`: Python dependency installation/runtime command wrapper in backend workflows
 
 ### Ingestion
@@ -83,10 +83,17 @@ Prompt design enforces:
 
 ### Observability (Langfuse)
 
-- Langfuse is wired as an optional callback for LangChain model calls.
-- It is disabled by default; enable with:
+- Langfuse is deployed as part of `docker-compose` with:
+  - `langfuse-web`
+  - `langfuse-worker`
+  - `langfuse-postgres`
+  - `langfuse-clickhouse`
+  - `langfuse-minio`
+  - `langfuse-redis`
+- Backend tracing is wired via LangChain callback integration.
+- Tracing is disabled by default; enable with:
   - `LANGFUSE_ENABLED=true`
-  - `LANGFUSE_HOST`
+  - `LANGFUSE_HOST=http://langfuse-web:3000` (Docker internal URL)
   - `LANGFUSE_PUBLIC_KEY`
   - `LANGFUSE_SECRET_KEY`
 
