@@ -31,6 +31,47 @@ type HealthResponse = {
   ollama_ready: boolean;
 };
 
+type EvalSummary = Record<string, number | null>;
+
+type EvalRunResponse = {
+  job_id: string;
+  status: string;
+  message: string;
+};
+
+type EvalStatusResponse = {
+  job_id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  processed: number;
+  total: number;
+  progress: number;
+  current_sample_id?: string | null;
+  message?: string | null;
+  error?: string | null;
+  summary: EvalSummary;
+  artifacts: Record<string, string>;
+};
+
+type EvalRow = {
+  sample_id: string;
+  model: string;
+  notes: string;
+  cosine_similarity: number;
+  citation_coverage: number;
+  source_f1: number;
+};
+
+type EvalResultsResponse = {
+  job_id: string;
+  status: string;
+  summary: EvalSummary;
+  artifacts: Record<string, string>;
+  rows: EvalRow[];
+};
+
 const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 const sessionStorageKey = "rag_session_id";
 
@@ -57,10 +98,19 @@ export default function App() {
   const [ingestMessage, setIngestMessage] = useState<string | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
+  const [evalStarting, setEvalStarting] = useState(false);
+  const [evalStatus, setEvalStatus] = useState<EvalStatusResponse | null>(null);
+  const [evalResults, setEvalResults] = useState<EvalResultsResponse | null>(null);
+  const [evalError, setEvalError] = useState<string | null>(null);
+
+  const evalBusy = useMemo(
+    () => evalStarting || evalStatus?.status === "queued" || evalStatus?.status === "running",
+    [evalStarting, evalStatus]
+  );
 
   const canSubmit = useMemo(
-    () => question.trim().length >= 3 && !loading && !ingestLoading,
-    [question, loading, ingestLoading]
+    () => question.trim().length >= 3 && !loading && !ingestLoading && !evalBusy,
+    [question, loading, ingestLoading, evalBusy]
   );
 
   const readErrorDetail = async (response: Response, fallback: string): Promise<string> => {
@@ -115,9 +165,76 @@ export default function App() {
     }
   };
 
+  const fetchEvalResults = async (jobId: string) => {
+    const response = await fetch(`${backendUrl}/eval/results/${jobId}`);
+    if (!response.ok) {
+      throw new Error(await readErrorDetail(response, "Failed to fetch evaluation results"));
+    }
+    const payload = (await response.json()) as EvalResultsResponse;
+    setEvalResults(payload);
+  };
+
+  const fetchEvalStatus = async (jobId: string) => {
+    const response = await fetch(`${backendUrl}/eval/status/${jobId}`);
+    if (!response.ok) {
+      throw new Error(await readErrorDetail(response, "Failed to fetch evaluation status"));
+    }
+    const payload = (await response.json()) as EvalStatusResponse;
+    setEvalStatus(payload);
+    if (payload.status === "completed") {
+      await fetchEvalResults(jobId);
+    }
+  };
+
+  const runEvaluation = async () => {
+    setEvalStarting(true);
+    setEvalError(null);
+    setEvalResults(null);
+
+    try {
+      const response = await fetch(`${backendUrl}/eval/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auto_ingest: true })
+      });
+      if (!response.ok) {
+        throw new Error(await readErrorDetail(response, "Failed to start evaluation"));
+      }
+      const payload = (await response.json()) as EvalRunResponse;
+      setEvalStatus({
+        job_id: payload.job_id,
+        status: "queued",
+        created_at: new Date().toISOString(),
+        processed: 0,
+        total: 0,
+        progress: 0,
+        summary: {},
+        artifacts: {},
+        message: payload.message
+      });
+      await fetchEvalStatus(payload.job_id);
+    } catch (err) {
+      setEvalError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setEvalStarting(false);
+    }
+  };
+
   useEffect(() => {
     void refreshHealth();
   }, []);
+
+  useEffect(() => {
+    if (!evalStatus?.job_id) return;
+    if (evalStatus.status !== "queued" && evalStatus.status !== "running") return;
+
+    const interval = window.setInterval(() => {
+      void fetchEvalStatus(evalStatus.job_id).catch((err) => {
+        setEvalError(err instanceof Error ? err.message : "Failed to poll evaluation status");
+      });
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, [evalStatus?.job_id, evalStatus?.status]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -129,6 +246,18 @@ export default function App() {
     setSessionId(createSessionId());
     setAnswer(null);
     setError(null);
+  };
+
+  const artifactUrl = (path: string): string => {
+    if (path.startsWith("http://") || path.startsWith("https://")) {
+      return path;
+    }
+    return `${backendUrl}${path}`;
+  };
+
+  const formatMetric = (value: number | null | undefined): string => {
+    if (value === null || value === undefined) return "-";
+    return value.toFixed(3);
   };
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -184,7 +313,7 @@ export default function App() {
               type="button"
               className="secondary-btn"
               onClick={() => void runIngestion(false)}
-              disabled={ingestLoading || loading}
+              disabled={ingestLoading || loading || evalBusy}
             >
               {ingestLoading ? "Ingesting..." : "Ingest Corpus"}
             </button>
@@ -192,7 +321,7 @@ export default function App() {
               type="button"
               className="secondary-btn"
               onClick={() => void runIngestion(true)}
-              disabled={ingestLoading || loading}
+              disabled={ingestLoading || loading || evalBusy}
             >
               Rebuild Index
             </button>
@@ -200,7 +329,7 @@ export default function App() {
               type="button"
               className="ghost-btn"
               onClick={() => void refreshHealth()}
-              disabled={ingestLoading || loading}
+              disabled={ingestLoading || loading || evalBusy}
             >
               Refresh Status
             </button>
@@ -208,7 +337,7 @@ export default function App() {
               type="button"
               className="ghost-btn"
               onClick={resetConversation}
-              disabled={ingestLoading || loading}
+              disabled={ingestLoading || loading || evalBusy}
             >
               New Conversation
             </button>
@@ -223,6 +352,93 @@ export default function App() {
           </p>
           {healthError && <p className="error">Health error: {healthError}</p>}
           {ingestMessage && <p className="info">{ingestMessage}</p>}
+        </section>
+
+        <section className="eval-panel">
+          <div className="ingest-actions">
+            <button
+              type="button"
+              className="secondary-btn"
+              onClick={() => void runEvaluation()}
+              disabled={loading || ingestLoading || evalBusy}
+            >
+              {evalBusy ? "Evaluation Running..." : "Run Evaluation"}
+            </button>
+            {evalStatus?.job_id && (
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => void fetchEvalStatus(evalStatus.job_id)}
+                disabled={loading || ingestLoading || evalBusy}
+              >
+                Refresh Eval Status
+              </button>
+            )}
+          </div>
+
+          {evalStatus && (
+            <>
+              <p className="status-line">
+                Eval job: <strong>{evalStatus.job_id.slice(0, 8)}...</strong> | status:{" "}
+                <strong>{evalStatus.status}</strong>
+              </p>
+              <p className="status-line">
+                Progress: <strong>{evalStatus.processed}</strong>/<strong>{evalStatus.total}</strong> (
+                {(evalStatus.progress * 100).toFixed(0)}%)
+                {evalStatus.current_sample_id ? ` | sample: ${evalStatus.current_sample_id}` : ""}
+              </p>
+              {evalStatus.message && <p className="status-line">Message: {evalStatus.message}</p>}
+            </>
+          )}
+
+          {evalError && <p className="error">Evaluation error: {evalError}</p>}
+
+          {evalStatus?.status === "completed" && (
+            <div className="eval-summary">
+              <p className="status-line">
+                Mean cosine: <strong>{formatMetric(evalStatus.summary.mean_cosine_similarity)}</strong> | Mean source F1:{" "}
+                <strong>{formatMetric(evalStatus.summary.mean_source_f1)}</strong> | Mean citation coverage:{" "}
+                <strong>{formatMetric(evalStatus.summary.mean_citation_coverage)}</strong>
+              </p>
+              <div className="eval-links">
+                {Object.entries(evalStatus.artifacts).map(([name, path]) => (
+                  <a key={name} href={artifactUrl(path)} target="_blank" rel="noreferrer">
+                    {name}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {evalResults && evalResults.rows.length > 0 && (
+            <details>
+              <summary>Evaluation rows ({evalResults.rows.length})</summary>
+              <div className="eval-table-wrap">
+                <table className="eval-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Cosine</th>
+                      <th>Coverage</th>
+                      <th>Source F1</th>
+                      <th>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {evalResults.rows.map((row) => (
+                      <tr key={row.sample_id}>
+                        <td>{row.sample_id}</td>
+                        <td>{formatMetric(row.cosine_similarity)}</td>
+                        <td>{formatMetric(row.citation_coverage)}</td>
+                        <td>{formatMetric(row.source_f1)}</td>
+                        <td>{row.notes}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
         </section>
 
         <form onSubmit={onSubmit} className="form">

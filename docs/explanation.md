@@ -143,6 +143,7 @@ Evaluation dataset: `scripts/eval_dataset.json` with 9 samples:
 
 Runner: `scripts/evaluate.py`.
 The runner calls the same FastAPI endpoints used by the app (`/health`, `/config`, `/query`, optional `/ingest`) and can replay multi-turn sessions via `conversation_id`.
+The web UI also triggers asynchronous backend evaluation jobs (`/eval/run`, `/eval/status/{job_id}`), reusing the same dataset and metrics logic.
 
 Metrics:
 1. `cosine_similarity`: embedding similarity between expected and generated answers.

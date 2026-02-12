@@ -111,6 +111,7 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./data:/app/data
+      - ./scripts:/app/scripts:ro
       - chroma_data:/app/data/chroma
     depends_on:
       ollama:

@@ -88,12 +88,14 @@ Open `http://localhost:5173`
 
 UI features:
 - ingest corpus directly from UI (`Ingest Corpus` button)
+- run full evaluation from UI (`Run Evaluation` button)
 - ask question
 - persistent conversation memory via session id
 - `New Conversation` button to start a fresh session
 - loading/error states
 - generated answer
 - expandable cited sources with page/chunk metadata
+- evaluation progress, aggregate metrics, and artifact links (`csv` / `markdown` / `jsonl`)
 
 ## 5) Ingestion API
 
@@ -145,6 +147,12 @@ Metrics implemented:
 Session-aware eval:
 - Add `conversation_id` in dataset rows to evaluate memory + rewrite over turns.
 - Add `expected_rewrite_contains` for follow-up rows that should be rewritten before retrieval.
+
+Backend evaluation job endpoints (used by UI button):
+- `POST /eval/run`
+- `GET /eval/status/{job_id}`
+- `GET /eval/results/{job_id}`
+- `GET /eval/artifact/{job_id}/{csv|markdown|jsonl}`
 
 ## 7) Configuration
 

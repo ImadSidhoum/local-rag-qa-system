@@ -67,6 +67,14 @@ h1 {
   background: #f8fcf9;
 }
 
+.eval-panel {
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  padding: 0.8rem;
+  margin-bottom: 1rem;
+  background: #f3faf7;
+}
+
 .ingest-actions {
   display: flex;
   gap: 0.55rem;
@@ -151,6 +159,41 @@ button:not(:disabled):hover {
   color: var(--muted);
   font-family: "IBM Plex Mono", monospace;
   font-size: 0.85rem;
+}
+
+.eval-summary {
+  margin-top: 0.6rem;
+}
+
+.eval-links {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.eval-links a {
+  color: var(--accent-strong);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.82rem;
+}
+
+.eval-table-wrap {
+  overflow-x: auto;
+  margin-top: 0.6rem;
+}
+
+.eval-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.87rem;
+}
+
+.eval-table th,
+.eval-table td {
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  padding: 0.45rem;
 }
 
 .result {

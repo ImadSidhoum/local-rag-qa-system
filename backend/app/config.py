@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     chroma_dir: Path = Field(default=Path("/app/data/chroma"), alias="CHROMA_DIR")
     chroma_collection_name: str = Field(default="rag_chunks", alias="CHROMA_COLLECTION_NAME")
     index_manifest_path: Path = Field(default=Path("/app/data/index_manifest.json"), alias="INDEX_MANIFEST_PATH")
+    eval_output_dir: Path = Field(default=Path("/app/data/eval"), alias="EVAL_OUTPUT_DIR")
+    eval_dataset_path: Path = Field(default=Path("/app/scripts/eval_dataset.json"), alias="EVAL_DATASET_PATH")
     chroma_anonymized_telemetry: bool = Field(default=False, alias="CHROMA_ANONYMIZED_TELEMETRY")
     chroma_product_telemetry_impl: str = Field(
         default="app.chroma_telemetry.NoOpProductTelemetry",
@@ -68,4 +70,5 @@ def get_settings() -> Settings:
     settings.chroma_dir.mkdir(parents=True, exist_ok=True)
     settings.corpus_dir.mkdir(parents=True, exist_ok=True)
     settings.index_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    settings.eval_output_dir.mkdir(parents=True, exist_ok=True)
     return settings
