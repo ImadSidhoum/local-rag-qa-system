@@ -79,6 +79,7 @@ python3 scripts/query.py "How many heads are used in the base Transformer?"
 Open `http://localhost:5173`
 
 UI features:
+- ingest corpus directly from UI (`Ingest Corpus` button)
 - ask question
 - loading/error states
 - generated answer
