@@ -1,0 +1,79 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: local-rag-ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: local-rag-backend
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      APP_NAME: local-rag-qa
+      APP_ENV: docker
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
+      LOG_LEVEL: INFO
+      DATA_DIR: /app/data
+      CORPUS_DIR: /app/data/corpus
+      CHROMA_DIR: /app/data/chroma
+      INDEX_MANIFEST_PATH: /app/data/index_manifest.json
+      EMBEDDING_MODEL: sentence-transformers/all-MiniLM-L6-v2
+      BATCH_SIZE: 32
+      CHUNK_SIZE: 900
+      CHUNK_OVERLAP: 150
+      TOP_K: 4
+      USE_MMR: "false"
+      MMR_CANDIDATES: 12
+      MMR_LAMBDA: 0.6
+      MIN_SIMILARITY: 0.2
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: llama3.2:3b
+      OLLAMA_FALLBACK_MODEL: llama3.2:1b
+      OLLAMA_TIMEOUT_SECONDS: 240
+      OLLAMA_AUTO_PULL: "true"
+      GEN_TEMPERATURE: 0.1
+      GEN_MAX_TOKENS: 450
+      RANDOM_SEED: 42
+    volumes:
+      - ./data:/app/data
+      - chroma_data:/app/data/chroma
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: local-rag-frontend
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    environment:
+      VITE_BACKEND_URL: http://localhost:${BACKEND_PORT:-8000}
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  chroma_data:
