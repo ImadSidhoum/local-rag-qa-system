@@ -12,7 +12,7 @@ The file is not committed directly; instead, `data/download_corpus.sh` provides 
 ## 2) RAG Architecture
 
 Orchestration stack:
-- `LangGraph`: query flow graph (`retrieve -> gate -> generate`)
+- `LangGraph`: query flow graph (`rewrite -> retrieve -> gate -> generate`)
 - `LangChain`: prompt templates + Ollama chat model invocation
 - `Langfuse`: self-hosted observability stack in Docker Compose + optional tracing callbacks
 - `uv`: Python dependency installation/runtime command wrapper in backend workflows
@@ -22,7 +22,7 @@ Configuration:
 
 ### Ingestion
 
-- Parser: `pypdf` (`PdfReader`) for robust text extraction.
+- Parser: LangChain `PyPDFLoader` for page-wise extraction with standardized `Document` objects.
 - Metadata captured per chunk:
   - `source` (filename)
   - `page`
@@ -32,10 +32,10 @@ Configuration:
 
 ### Chunking Strategy
 
-Implemented in `backend/app/chunking.py`:
+Implemented with LangChain `RecursiveCharacterTextSplitter` in `backend/app/chunking.py`:
 - Character-based chunks with configurable overlap.
 - Defaults: `chunk_size=900`, `chunk_overlap=150`.
-- Heuristic boundaries prioritize paragraph/sentence/space breaks.
+- Splitter separators prioritize paragraph/sentence/space boundaries.
 
 Reasoning:
 - 900 chars keeps enough local context for equations/definitions without overloading retrieval.
@@ -50,14 +50,14 @@ Why:
 - Good retrieval quality for short technical passages.
 - Fast CPU inference and stable local operation.
 
-The embedding pipeline is deterministic:
+The embedding pipeline uses LangChain `HuggingFaceEmbeddings` and is deterministic:
 - fixed random seed,
 - sorted file order,
 - stable metadata/chunk-id generation.
 
 ### Vector Store
 
-Store: local persistent `ChromaDB` (`PersistentClient`).
+Store: local persistent Chroma via LangChain `Chroma` wrapper.
 
 Why:
 - Fully local, open-source, simple persistence.
@@ -68,12 +68,12 @@ Persistence is backed by Docker named volume `chroma_data`.
 
 ### Retrieval
 
-- Default top-k retrieval (`TOP_K=4`).
+- Default top-k retrieval (`TOP_K=4`) via LangChain retriever interface.
 - Optional MMR reranking (`USE_MMR=true`) with configurable `MMR_CANDIDATES` and `MMR_LAMBDA`.
 - Similarity threshold (`MIN_SIMILARITY`) triggers a safe abstention response.
 - Retrieval, gating, and generation are executed by a compiled LangGraph state machine for deterministic flow.
 - If memory is enabled, recent session turns are included in retrieval query expansion to improve follow-up resolution.
-- A rewrite node runs before retrieval to convert follow-up questions into standalone queries prior to embedding lookup.
+- Graph nodes are `rewrite -> retrieve -> gate -> generate`.
 
 ### Generation
 

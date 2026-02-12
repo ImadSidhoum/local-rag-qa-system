@@ -8,12 +8,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.embeddings import EmbeddingModel
 from app.logging_utils import configure_logging
 from app.ollama_client import OllamaClient
 from app.rag_service import RagService
 from app.schemas import ConfigResponse, HealthResponse, IngestRequest, IngestResponse, QueryRequest, QueryResponse, SourceItem
-from app.vector_store import ChromaVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -42,13 +40,8 @@ def startup() -> None:
     random.seed(settings.random_seed)
     np.random.seed(settings.random_seed)
 
-    embedding_model = EmbeddingModel(settings.embedding_model, settings.batch_size)
-    vector_store = ChromaVectorStore(
-        settings.chroma_dir,
-        anonymized_telemetry=settings.chroma_anonymized_telemetry,
-    )
     ollama_client = OllamaClient(settings.ollama_base_url, settings.ollama_timeout_seconds)
-    app.state.rag_service = RagService(settings, embedding_model, vector_store, ollama_client)
+    app.state.rag_service = RagService(settings, ollama_client)
 
     logger.info("Application started with data dir=%s", settings.data_dir)
 
@@ -57,7 +50,7 @@ def startup() -> None:
 def health() -> HealthResponse:
     service = get_rag_service()
     ollama_ready = service.ollama_client.is_ready()
-    return HealthResponse(status="ok", indexed_chunks=service.vector_store.count(), ollama_ready=ollama_ready)
+    return HealthResponse(status="ok", indexed_chunks=service.indexed_chunk_count(), ollama_ready=ollama_ready)
 
 
 @app.get("/config", response_model=ConfigResponse)

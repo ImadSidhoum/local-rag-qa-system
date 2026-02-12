@@ -3,7 +3,7 @@
 End-to-end local RAG project using:
 - `FastAPI` backend
 - `React + TypeScript + Vite` frontend
-- `LangChain` for prompt + LLM runtime abstraction
+- `LangChain` for ingestion, chunking, embeddings, retrieval, prompts, and LLM runtime abstraction
 - `LangGraph` for query orchestration graph
 - `Sentence-Transformers` embeddings
 - `ChromaDB` local persistent vector store

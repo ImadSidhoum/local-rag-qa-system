@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
-import chromadb
 from chromadb.config import Settings as ChromaSettings
+from langchain_chroma import Chroma
+from langchain_core.documents import Document
 
-from app.chunking import TextChunk
+from app.embeddings import EmbeddingModel
 
 
 @dataclass
@@ -17,101 +17,78 @@ class RetrievedChunk:
     chunk_id: str
     chunk_index: int
     text: str
-    score: float
-    embedding: list[float] | None = None
+    score: float | None = None
 
 
 class ChromaVectorStore:
     def __init__(
         self,
         persist_dir: Path,
+        embedding_model: EmbeddingModel,
         collection_name: str = "rag_chunks",
         anonymized_telemetry: bool = False,
     ) -> None:
-        self.client = chromadb.PersistentClient(
-            path=str(persist_dir),
-            settings=ChromaSettings(anonymized_telemetry=anonymized_telemetry),
-        )
         self.collection_name = collection_name
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name,
-            metadata={"hnsw:space": "cosine"},
+        self.persist_dir = persist_dir
+        self.embedding_model = embedding_model.model
+        self.client_settings = ChromaSettings(anonymized_telemetry=anonymized_telemetry)
+        self.store = Chroma(
+            collection_name=collection_name,
+            persist_directory=str(self.persist_dir),
+            embedding_function=self.embedding_model,
+            client_settings=self.client_settings,
+            collection_metadata={"hnsw:space": "cosine"},
         )
 
     def reset_collection(self) -> None:
         try:
-            self.client.delete_collection(name=self.collection_name)
+            self.store.delete_collection()
         except Exception:
             pass
-        self.collection = self.client.get_or_create_collection(
-            name=self.collection_name,
-            metadata={"hnsw:space": "cosine"},
+        self.store = self.store.__class__(
+            collection_name=self.collection_name,
+            persist_directory=str(self.persist_dir),
+            embedding_function=self.embedding_model,
+            client_settings=self.client_settings,
+            collection_metadata={"hnsw:space": "cosine"},
         )
 
     def count(self) -> int:
-        return self.collection.count()
+        collection = getattr(self.store, "_collection", None)
+        if collection is None:
+            return 0
+        return int(collection.count())
 
-    def upsert_chunks(self, chunks: list[TextChunk], embeddings: list[list[float]]) -> None:
-        if len(chunks) != len(embeddings):
-            raise ValueError("chunks and embeddings must have the same length")
+    def upsert_chunks(self, chunks: list[Document]) -> None:
+        if not chunks:
+            return
+        ids = [str(chunk.metadata["chunk_id"]) for chunk in chunks]
+        self.store.add_documents(chunks, ids=ids)
 
-        ids = [chunk.chunk_id for chunk in chunks]
-        documents = [chunk.text for chunk in chunks]
-        metadatas: list[dict[str, Any]] = [
-            {
-                "source": chunk.source,
-                "page": chunk.page,
-                "chunk_id": chunk.chunk_id,
-                "chunk_index": chunk.chunk_index,
-            }
-            for chunk in chunks
-        ]
-
-        self.collection.upsert(
-            ids=ids,
-            embeddings=embeddings,
-            documents=documents,
-            metadatas=metadatas,
-        )
-
-    def query(
-        self,
-        query_embedding: list[float],
-        n_results: int,
-        include_embeddings: bool,
-    ) -> list[RetrievedChunk]:
-        include_fields = ["documents", "metadatas", "distances"]
-        if include_embeddings:
-            include_fields.append("embeddings")
-
-        result = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=n_results,
-            include=include_fields,
-        )
-
-        documents = (result.get("documents") or [[]])[0]
-        metadatas = (result.get("metadatas") or [[]])[0]
-        distances = (result.get("distances") or [[]])[0]
-        embeddings = (result.get("embeddings") or [[]])[0] if include_embeddings else []
+    def query(self, question: str, n_results: int, use_mmr: bool = False) -> list[RetrievedChunk]:
+        if use_mmr:
+            retriever = self.store.as_retriever(
+                search_type="mmr",
+                search_kwargs={"k": n_results, "fetch_k": max(2 * n_results, n_results)},
+            )
+            documents = retriever.invoke(question)
+            score_map: dict[str, float] = {}
+        else:
+            scored = self.store.similarity_search_with_relevance_scores(question, k=n_results)
+            documents = [doc for doc, _ in scored]
+            score_map = {str(doc.metadata.get("chunk_id", "")): float(score) for doc, score in scored}
 
         retrieved: list[RetrievedChunk] = []
-        for index, doc in enumerate(documents):
-            metadata = metadatas[index]
-            distance = float(distances[index])
-            score = max(0.0, 1.0 - distance)
-            embedding = embeddings[index] if include_embeddings else None
-
+        for doc in documents:
+            chunk_id = str(doc.metadata.get("chunk_id", ""))
             retrieved.append(
                 RetrievedChunk(
-                    source=str(metadata["source"]),
-                    page=int(metadata["page"]),
-                    chunk_id=str(metadata["chunk_id"]),
-                    chunk_index=int(metadata["chunk_index"]),
-                    text=doc,
-                    score=score,
-                    embedding=embedding,
+                    source=str(doc.metadata.get("source", "unknown.pdf")),
+                    page=int(doc.metadata.get("page", 1)),
+                    chunk_id=chunk_id,
+                    chunk_index=int(doc.metadata.get("chunk_index", 0)),
+                    text=doc.page_content,
+                    score=score_map.get(chunk_id),
                 )
             )
-
         return retrieved

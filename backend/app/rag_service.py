@@ -10,19 +10,19 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, TypedDict
 
-import numpy as np
+from chromadb.config import Settings as ChromaSettings
+from langchain_chroma import Chroma
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama
 from langgraph.graph import END, StateGraph
 
-from app.chunking import chunk_pages
+from app.chunking import split_documents
 from app.config import Settings
-from app.embeddings import EmbeddingModel
 from app.langfuse_utils import build_langfuse_callback
 from app.ollama_client import OllamaClient
-from app.pdf_ingestion import load_corpus_pages
-from app.vector_store import ChromaVectorStore, RetrievedChunk
+from app.pdf_ingestion import load_corpus_documents
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,16 @@ Rules:
 4) If question is already standalone, return it unchanged.
 5) Output only the rewritten question text.
 """.strip()
+
+
+@dataclass
+class RetrievedChunk:
+    source: str
+    page: int
+    chunk_id: str
+    chunk_index: int
+    text: str
+    score: float
 
 
 @dataclass
@@ -84,19 +94,22 @@ class RagService:
     def __init__(
         self,
         settings: Settings,
-        embedding_model: EmbeddingModel,
-        vector_store: ChromaVectorStore,
         ollama_client: OllamaClient,
     ) -> None:
         self.settings = settings
-        self.embedding_model = embedding_model
-        self.vector_store = vector_store
         self.ollama_client = ollama_client
         self.langfuse_callback = build_langfuse_callback(settings)
         self._memory_lock = Lock()
         self._conversation_memory: dict[str, deque[tuple[str, str]]] = {}
 
-        self.prompt = ChatPromptTemplate.from_messages(
+        self.embedding_model = HuggingFaceEmbeddings(
+            model_name=self.settings.embedding_model,
+            model_kwargs={"device": "cpu"},
+            encode_kwargs={"normalize_embeddings": True},
+        )
+        self.vectorstore = self._build_vectorstore()
+
+        self.answer_prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", SYSTEM_PROMPT),
                 (
@@ -118,7 +131,35 @@ class RagService:
                 ),
             ]
         )
+
         self.query_graph = self._build_query_graph()
+
+    def _build_vectorstore(self) -> Chroma:
+        return Chroma(
+            collection_name=self.settings.chroma_collection_name,
+            persist_directory=str(self.settings.chroma_dir),
+            embedding_function=self.embedding_model,
+            client_settings=ChromaSettings(
+                anonymized_telemetry=self.settings.chroma_anonymized_telemetry
+            ),
+            collection_metadata={"hnsw:space": "cosine"},
+        )
+
+    def _reset_vectorstore(self) -> None:
+        try:
+            self.vectorstore.delete_collection()
+        except Exception:
+            pass
+        self.vectorstore = self._build_vectorstore()
+
+    def indexed_chunk_count(self) -> int:
+        collection = getattr(self.vectorstore, "_collection", None)
+        if collection is None:
+            return 0
+        try:
+            return int(collection.count())
+        except Exception:
+            return 0
 
     def _build_query_graph(self) -> Any:
         graph = StateGraph(QueryState)
@@ -142,7 +183,7 @@ class RagService:
         return graph.compile()
 
     def _manifest_fingerprint(self, pdf_files: list[Path]) -> str:
-        fingerprint_payload = {
+        payload = {
             "files": [
                 {
                     "name": path.name,
@@ -151,11 +192,12 @@ class RagService:
                 }
                 for path in pdf_files
             ],
+            "embedding_model": self.settings.embedding_model,
             "chunk_size": self.settings.chunk_size,
             "chunk_overlap": self.settings.chunk_overlap,
-            "embedding_model": self.settings.embedding_model,
+            "collection_name": self.settings.chroma_collection_name,
         }
-        raw = json.dumps(fingerprint_payload, sort_keys=True).encode("utf-8")
+        raw = json.dumps(payload, sort_keys=True).encode("utf-8")
         return hashlib.sha256(raw).hexdigest()
 
     def _read_manifest(self) -> dict[str, str] | None:
@@ -165,15 +207,35 @@ class RagService:
 
     def _write_manifest(self, payload: dict[str, str | int]) -> None:
         self.settings.index_manifest_path.write_text(
-            json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8"
+            json.dumps(payload, indent=2, sort_keys=True),
+            encoding="utf-8",
         )
 
-    def ingest(self, force: bool = False) -> IngestSummary:
-        pdf_files, pages = load_corpus_pages(self.settings.corpus_dir)
+    def _list_pdf_files(self) -> list[Path]:
+        pdf_files = sorted(path for path in self.settings.corpus_dir.glob("*.pdf") if path.is_file())
+        if not pdf_files:
+            raise FileNotFoundError(f"No PDF files found in corpus directory: {self.settings.corpus_dir}")
+        return pdf_files
 
+    def _load_documents(self) -> tuple[list[Path], list[Document]]:
+        return load_corpus_documents(self.settings.corpus_dir)
+
+    def _index_documents(self, chunks: list[Document]) -> None:
+        self._reset_vectorstore()
+
+        total = len(chunks)
+        batch_size = max(1, self.settings.batch_size)
+        for start in range(0, total, batch_size):
+            batch = chunks[start : start + batch_size]
+            ids = [str(doc.metadata["chunk_id"]) for doc in batch]
+            self.vectorstore.add_documents(batch, ids=ids)
+            logger.info("Indexed %s/%s chunks", min(start + batch_size, total), total)
+
+    def ingest(self, force: bool = False) -> IngestSummary:
+        pdf_files = self._list_pdf_files()
         fingerprint = self._manifest_fingerprint(pdf_files)
         manifest = self._read_manifest()
-        existing_count = self.vector_store.count()
+        existing_count = self.indexed_chunk_count()
 
         if (
             not force
@@ -185,26 +247,26 @@ class RagService:
                 status="ok",
                 message="Index already up to date",
                 documents=len(pdf_files),
-                pages=len(pages),
+                pages=int(manifest.get("pages", 0)),
                 chunks=existing_count,
                 skipped=True,
             )
 
-        chunks = chunk_pages(pages, chunk_size=self.settings.chunk_size, overlap=self.settings.chunk_overlap)
+        _, page_documents = self._load_documents()
+        chunks = split_documents(
+            page_documents,
+            chunk_size=self.settings.chunk_size,
+            overlap=self.settings.chunk_overlap,
+        )
         if not chunks:
             raise ValueError("No chunks generated from corpus")
-
-        logger.info("Embedding %s chunks with model %s", len(chunks), self.settings.embedding_model)
-        embeddings = self.embedding_model.embed_texts([chunk.text for chunk in chunks])
-
-        self.vector_store.reset_collection()
-        self.vector_store.upsert_chunks(chunks, embeddings)
+        self._index_documents(chunks)
 
         self._write_manifest(
             {
                 "fingerprint": fingerprint,
                 "documents": len(pdf_files),
-                "pages": len(pages),
+                "pages": len(page_documents),
                 "chunks": len(chunks),
                 "embedding_model": self.settings.embedding_model,
                 "chunk_size": self.settings.chunk_size,
@@ -216,63 +278,67 @@ class RagService:
             status="ok",
             message="Index built successfully",
             documents=len(pdf_files),
-            pages=len(pages),
+            pages=len(page_documents),
             chunks=len(chunks),
             skipped=False,
         )
 
-    def _apply_mmr(self, query_embedding: list[float], candidates: list[RetrievedChunk]) -> list[RetrievedChunk]:
-        if not candidates:
-            return []
-
-        top_k = min(self.settings.top_k, len(candidates))
-        if top_k <= 0:
-            return []
-
-        matrix = np.array([candidate.embedding for candidate in candidates], dtype=np.float32)
-        query = np.array(query_embedding, dtype=np.float32)
-
-        query_sim = matrix @ query
-        selected_indexes: list[int] = []
-
-        for _ in range(top_k):
-            if not selected_indexes:
-                selected_indexes.append(int(np.argmax(query_sim)))
-                continue
-
-            selected_matrix = matrix[selected_indexes]
-            diversity_penalty = np.max(matrix @ selected_matrix.T, axis=1)
-            mmr_scores = self.settings.mmr_lambda * query_sim - (1.0 - self.settings.mmr_lambda) * diversity_penalty
-            mmr_scores[selected_indexes] = -np.inf
-            selected_indexes.append(int(np.argmax(mmr_scores)))
-
-        selected = [candidates[index] for index in selected_indexes]
-        for item in selected:
-            item.embedding = None
-        return selected
-
-    def _to_documents(self, chunks: list[RetrievedChunk]) -> list[Document]:
-        return [
-            Document(
-                page_content=chunk.text,
-                metadata={
-                    "source": chunk.source,
-                    "page": chunk.page,
-                    "chunk_id": chunk.chunk_id,
-                    "score": round(chunk.score, 4),
+    def _build_retriever(self):
+        if self.settings.use_mmr:
+            return self.vectorstore.as_retriever(
+                search_type="mmr",
+                search_kwargs={
+                    "k": self.settings.top_k,
+                    "fetch_k": max(self.settings.mmr_candidates, self.settings.top_k),
+                    "lambda_mult": self.settings.mmr_lambda,
                 },
             )
-            for chunk in chunks
-        ]
+        return self.vectorstore.as_retriever(
+            search_type="similarity",
+            search_kwargs={"k": self.settings.top_k},
+        )
+
+    def _score_documents(self, query: str) -> dict[str, float]:
+        score_limit = max(self.settings.top_k, self.settings.mmr_candidates)
+        scored_pairs = self.vectorstore.similarity_search_with_relevance_scores(query, k=score_limit)
+
+        score_map: dict[str, float] = {}
+        for document, score in scored_pairs:
+            chunk_id = str(document.metadata.get("chunk_id", ""))
+            if not chunk_id:
+                continue
+            clamped_score = max(0.0, min(1.0, float(score)))
+            previous = score_map.get(chunk_id)
+            score_map[chunk_id] = clamped_score if previous is None else max(previous, clamped_score)
+
+        return score_map
+
+    def _documents_to_chunks(self, documents: list[Document], score_map: dict[str, float]) -> list[RetrievedChunk]:
+        chunks: list[RetrievedChunk] = []
+        for doc in documents:
+            source = str(doc.metadata.get("source", "unknown.pdf"))
+            page = int(doc.metadata.get("page", 1))
+            chunk_id = str(doc.metadata.get("chunk_id", f"{source}-p{page}-c0"))
+            chunk_index = int(doc.metadata.get("chunk_index", 0))
+            score = score_map.get(chunk_id, 0.0)
+            chunks.append(
+                RetrievedChunk(
+                    source=source,
+                    page=page,
+                    chunk_id=chunk_id,
+                    chunk_index=chunk_index,
+                    text=doc.page_content,
+                    score=score,
+                )
+            )
+        return chunks
 
     def _format_context(self, chunks: list[RetrievedChunk]) -> str:
-        documents = self._to_documents(chunks)
         lines: list[str] = []
-        for idx, document in enumerate(documents, start=1):
+        for idx, chunk in enumerate(chunks, start=1):
             lines.append(
-                f"[{idx}] source={document.metadata['source']} page={document.metadata['page']} "
-                f"chunk={document.metadata['chunk_id']} score={document.metadata['score']:.3f}\n"
-                f"{document.page_content}"
+                f"[{idx}] source={chunk.source} page={chunk.page} chunk={chunk.chunk_id} score={chunk.score:.3f}\n"
+                f"{chunk.text}"
             )
         return "\n\n".join(lines)
 
@@ -377,41 +443,18 @@ class RagService:
                 fallback_model=self.settings.ollama_fallback_model,
                 auto_pull=self.settings.ollama_auto_pull,
             )
-            rewritten_question = self._rewrite_question_with_llm(
-                model_name=model_name,
-                history=history,
-                question=question,
-                session_id=session_id,
-            )
-            return {
-                "rewritten_question": rewritten_question,
-                "model": model_name,
-            }
+            rewritten = self._rewrite_question_with_llm(model_name, history, question, session_id)
+            return {"rewritten_question": rewritten, "model": model_name}
         except Exception as exc:  # pragma: no cover
             logger.warning("Query rewrite failed, using original question: %s", exc)
             return {"rewritten_question": question}
 
     def _node_retrieve(self, state: QueryState) -> dict[str, Any]:
         retrieval_query = state.get("rewritten_question", state["question"])
-        query_embedding = self.embedding_model.embed_query(retrieval_query)
-
-        candidate_count = self.settings.top_k
-        include_embeddings = False
-        if self.settings.use_mmr:
-            candidate_count = max(self.settings.mmr_candidates, self.settings.top_k)
-            include_embeddings = True
-
-        candidates = self.vector_store.query(
-            query_embedding=query_embedding,
-            n_results=candidate_count,
-            include_embeddings=include_embeddings,
-        )
-
-        if self.settings.use_mmr:
-            selected = self._apply_mmr(query_embedding, candidates)
-        else:
-            selected = candidates[: self.settings.top_k]
-
+        retriever = self._build_retriever()
+        documents = retriever.invoke(retrieval_query)
+        score_map = self._score_documents(retrieval_query)
+        selected = self._documents_to_chunks(documents, score_map)
         return {"selected": selected}
 
     def _node_gate(self, state: QueryState) -> dict[str, Any]:
@@ -444,6 +487,7 @@ class RagService:
         context: str,
         history: str,
         session_id: str | None,
+        rewritten_question: str,
     ) -> str:
         llm = ChatOllama(
             base_url=self.settings.ollama_base_url,
@@ -451,12 +495,13 @@ class RagService:
             temperature=self.settings.gen_temperature,
             num_predict=self.settings.gen_max_tokens,
         )
-        messages = self.prompt.format_messages(question=question, context=context, history=history)
+        messages = self.answer_prompt.format_messages(question=question, context=context, history=history)
 
         metadata: dict[str, Any] = {
             "component": "rag_query",
             "question_length": len(question),
             "has_history": history != EMPTY_HISTORY,
+            "rewritten_question": rewritten_question,
         }
         if session_id:
             metadata["session_id"] = session_id
@@ -485,6 +530,7 @@ class RagService:
         context = state.get("context", "")
         history = state.get("history", EMPTY_HISTORY)
         session_id = state.get("session_id")
+        rewritten_question = state.get("rewritten_question", question)
 
         raw_answer = self._invoke_llm(
             model_name=model_name,
@@ -492,6 +538,7 @@ class RagService:
             context=context,
             history=history,
             session_id=session_id,
+            rewritten_question=rewritten_question,
         )
         return {
             "answer": raw_answer,
@@ -499,7 +546,7 @@ class RagService:
         }
 
     def query(self, question: str, session_id: str | None = None) -> QueryResult:
-        if self.vector_store.count() == 0:
+        if self.indexed_chunk_count() == 0:
             raise RuntimeError("Vector index is empty. Call /ingest first.")
 
         question = question.strip()
@@ -508,6 +555,7 @@ class RagService:
 
         normalized_session_id = self._normalize_session_id(session_id)
         history = self._get_history_text(normalized_session_id)
+
         result_state = self.query_graph.invoke(
             {
                 "question": question,
@@ -526,8 +574,8 @@ class RagService:
 
         self._append_memory(normalized_session_id, question, answer)
 
-        model_name = result_state.get("model", self.settings.ollama_model)
         rewritten_question = result_state.get("rewritten_question", question)
+        model_name = result_state.get("model", self.settings.ollama_model)
         return QueryResult(
             answer=answer,
             model=model_name,

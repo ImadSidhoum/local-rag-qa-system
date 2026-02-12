@@ -1,20 +1,25 @@
-from app.chunking import _split_text_with_overlap
+from langchain_core.documents import Document
+
+from app.chunking import split_documents
 
 
-def test_split_text_with_overlap_is_deterministic() -> None:
+def test_split_documents_is_deterministic() -> None:
     text = " ".join(["token"] * 400)
+    docs = [Document(page_content=text, metadata={"source": "test.pdf", "page": 1})]
 
-    chunks_one = _split_text_with_overlap(text, chunk_size=120, overlap=20)
-    chunks_two = _split_text_with_overlap(text, chunk_size=120, overlap=20)
+    chunks_one = split_documents(docs, chunk_size=120, overlap=20)
+    chunks_two = split_documents(docs, chunk_size=120, overlap=20)
 
-    assert chunks_one == chunks_two
+    chunk_ids_one = [chunk.metadata["chunk_id"] for chunk in chunks_one]
+    chunk_ids_two = [chunk.metadata["chunk_id"] for chunk in chunks_two]
+    assert chunk_ids_one == chunk_ids_two
     assert len(chunks_one) > 1
-    assert all(chunk.strip() for chunk in chunks_one)
+    assert all(chunk.page_content.strip() for chunk in chunks_one)
 
 
-def test_split_text_with_overlap_validates_params() -> None:
+def test_split_documents_validates_params() -> None:
     try:
-        _split_text_with_overlap("abc", chunk_size=100, overlap=100)
+        split_documents([], chunk_size=100, overlap=100)
     except ValueError as exc:
         assert "overlap" in str(exc)
     else:

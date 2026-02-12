@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default=Path("/app/data"), alias="DATA_DIR")
     corpus_dir: Path = Field(default=Path("/app/data/corpus"), alias="CORPUS_DIR")
     chroma_dir: Path = Field(default=Path("/app/data/chroma"), alias="CHROMA_DIR")
+    chroma_collection_name: str = Field(default="rag_chunks", alias="CHROMA_COLLECTION_NAME")
     index_manifest_path: Path = Field(default=Path("/app/data/index_manifest.json"), alias="INDEX_MANIFEST_PATH")
     chroma_anonymized_telemetry: bool = Field(default=False, alias="CHROMA_ANONYMIZED_TELEMETRY")
 
