@@ -1,7 +1,7 @@
 sample_id,question,cosine_similarity,citation_coverage,answer_has_citation,model,notes
-q1,Why do the authors remove recurrence and convolution in the Transformer?,0.8720,1.0000,1.0000,llama3.2:3b,ok
-q2,What scaling factor is used in scaled dot-product attention, and why?,0.9140,1.0000,1.0000,llama3.2:3b,ok
-q3,How does the computational complexity per layer of self-attention compare with recurrent layers?,0.8420,1.0000,1.0000,llama3.2:3b,ok
-q4,How many heads are used in base Transformer multi-head attention?,0.9630,1.0000,1.0000,llama3.2:3b,ok
-q5,What value of label smoothing is used during training?,0.9570,1.0000,1.0000,llama3.2:3b,ok
-q6,What optimizer and learning-rate schedule are used?,0.8810,1.0000,1.0000,llama3.2:3b,ok
+q1,"Why do the authors remove recurrence and convolution in the Transformer?",0.8720,1.0000,1.0000,llama3.2:3b,ok
+q2,"What scaling factor is used in scaled dot-product attention, and why?",0.9140,1.0000,1.0000,llama3.2:3b,ok
+q3,"How does the computational complexity per layer of self-attention compare with recurrent layers?",0.8420,1.0000,1.0000,llama3.2:3b,ok
+q4,"How many heads are used in base Transformer multi-head attention?",0.9630,1.0000,1.0000,llama3.2:3b,ok
+q5,"What value of label smoothing is used during training?",0.9570,1.0000,1.0000,llama3.2:3b,ok
+q6,"What optimizer and learning-rate schedule are used?",0.8810,1.0000,1.0000,llama3.2:3b,ok
