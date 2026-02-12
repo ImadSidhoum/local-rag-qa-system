@@ -72,6 +72,8 @@ def config() -> ConfigResponse:
         "ollama_fallback_model": settings.ollama_fallback_model,
         "temperature": settings.gen_temperature,
         "max_tokens": settings.gen_max_tokens,
+        "memory_enabled": settings.memory_enabled,
+        "memory_max_turns": settings.memory_max_turns,
         "langfuse_enabled": settings.langfuse_enabled,
         "langfuse_host": settings.langfuse_host,
     }
@@ -105,7 +107,7 @@ def ingest(payload: IngestRequest) -> IngestResponse:
 def query(payload: QueryRequest) -> QueryResponse:
     service = get_rag_service()
     try:
-        result = service.query(payload.question)
+        result = service.query(payload.question, payload.session_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -125,4 +127,4 @@ def query(payload: QueryRequest) -> QueryResponse:
         for chunk in result.sources
     ]
 
-    return QueryResponse(answer=result.answer, model=result.model, sources=sources)
+    return QueryResponse(answer=result.answer, model=result.model, sources=sources, session_id=result.session_id)

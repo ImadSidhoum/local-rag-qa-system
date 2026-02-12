@@ -12,6 +12,7 @@ type QueryResponse = {
   answer: string;
   model: string;
   sources: Source[];
+  session_id?: string | null;
 };
 
 type IngestResponse = {
@@ -30,9 +31,24 @@ type HealthResponse = {
 };
 
 const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+const sessionStorageKey = "rag_session_id";
+
+const createSessionId = (): string => {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
 
 export default function App() {
   const [question, setQuestion] = useState("");
+  const [sessionId, setSessionId] = useState<string>(() => {
+    if (typeof window === "undefined") {
+      return createSessionId();
+    }
+    const existing = window.localStorage.getItem(sessionStorageKey);
+    return existing || createSessionId();
+  });
   const [loading, setLoading] = useState(false);
   const [ingestLoading, setIngestLoading] = useState(false);
   const [answer, setAnswer] = useState<QueryResponse | null>(null);
@@ -102,6 +118,18 @@ export default function App() {
     void refreshHealth();
   }, []);
 
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(sessionStorageKey, sessionId);
+    }
+  }, [sessionId]);
+
+  const resetConversation = () => {
+    setSessionId(createSessionId());
+    setAnswer(null);
+    setError(null);
+  };
+
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canSubmit) return;
@@ -113,7 +141,7 @@ export default function App() {
       const response = await fetch(`${backendUrl}/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: question.trim() })
+        body: JSON.stringify({ question: question.trim(), session_id: sessionId })
       });
 
       if (!response.ok) {
@@ -121,6 +149,9 @@ export default function App() {
       }
 
       const payload = (await response.json()) as QueryResponse;
+      if (payload.session_id) {
+        setSessionId(payload.session_id);
+      }
       setAnswer(payload);
     } catch (err) {
       setAnswer(null);
@@ -172,11 +203,22 @@ export default function App() {
             >
               Refresh Status
             </button>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={resetConversation}
+              disabled={ingestLoading || loading}
+            >
+              New Conversation
+            </button>
           </div>
 
           <p className="status-line">
             Indexed chunks: <strong>{health ? health.indexed_chunks : "?"}</strong> | Ollama:{" "}
             <strong>{health?.ollama_ready ? "ready" : "not ready"}</strong>
+          </p>
+          <p className="status-line">
+            Conversation ID: <strong>{sessionId.slice(0, 8)}...</strong> (memory enabled across follow-up questions)
           </p>
           {healthError && <p className="error">Health error: {healthError}</p>}
           {ingestMessage && <p className="info">{ingestMessage}</p>}

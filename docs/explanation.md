@@ -72,6 +72,7 @@ Persistence is backed by Docker named volume `chroma_data`.
 - Optional MMR reranking (`USE_MMR=true`) with configurable `MMR_CANDIDATES` and `MMR_LAMBDA`.
 - Similarity threshold (`MIN_SIMILARITY`) triggers a safe abstention response.
 - Retrieval, gating, and generation are executed by a compiled LangGraph state machine for deterministic flow.
+- If memory is enabled, recent session turns are included in retrieval query expansion to improve follow-up resolution.
 
 ### Generation
 
@@ -100,13 +101,21 @@ Prompt design enforces:
   - `LANGFUSE_PUBLIC_KEY`
   - `LANGFUSE_SECRET_KEY`
 
+### Conversation Memory
+
+- Session memory is supported via `session_id` on `/query`.
+- Memory controls:
+  - `MEMORY_ENABLED` (default `true`)
+  - `MEMORY_MAX_TURNS` (default `6`)
+- Memory is in-process (resets when backend restarts).
+
 ## 3) API and Frontend
 
 ### FastAPI Endpoints
 
 - `GET /health`
 - `POST /ingest` (idempotent, optional `force`)
-- `POST /query` → `{answer, sources[]}` with scores + excerpts
+- `POST /query` → `{answer, sources[], session_id}` with scores + excerpts
 - `GET /config` (safe runtime knobs)
 
 ### React Frontend

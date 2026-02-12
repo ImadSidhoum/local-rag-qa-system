@@ -4,8 +4,10 @@ import hashlib
 import json
 import logging
 import re
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Any, TypedDict
 
 import numpy as np
@@ -28,13 +30,15 @@ SYSTEM_PROMPT = """
 You are a strict Retrieval-Augmented QA assistant.
 Rules:
 1) Use only the provided context.
-2) If the answer is not in context, respond exactly: I don't know based on the provided documents.
-3) Cite factual statements using this exact format: [source=<filename> page=<page> chunk=<chunk_id>]
-4) Never invent sources or page numbers.
-5) Keep the answer concise and technical.
+2) Use conversation history only to resolve references (e.g., "it", "that"), not as a factual source.
+3) If the answer is not in context, respond exactly: I don't know based on the provided documents.
+4) Cite factual statements using this exact format: [source=<filename> page=<page> chunk=<chunk_id>]
+5) Never invent sources or page numbers.
+6) Keep the answer concise and technical.
 """.strip()
 
 IDK_ANSWER = "I don't know based on the provided documents."
+EMPTY_HISTORY = "(none)"
 
 
 @dataclass
@@ -52,10 +56,13 @@ class QueryResult:
     answer: str
     model: str
     sources: list[RetrievedChunk]
+    session_id: str | None = None
 
 
 class QueryState(TypedDict, total=False):
     question: str
+    session_id: str
+    history: str
     selected: list[RetrievedChunk]
     context: str
     answer: str
@@ -75,11 +82,15 @@ class RagService:
         self.vector_store = vector_store
         self.ollama_client = ollama_client
         self.langfuse_callback = build_langfuse_callback(settings)
+        self._memory_lock = Lock()
+        self._conversation_memory: dict[str, deque[tuple[str, str]]] = {}
+
         self.prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", SYSTEM_PROMPT),
                 (
                     "human",
+                    "Conversation history (may be empty):\n{history}\n\n"
                     "Answer the question using only the context below.\n\n"
                     "Question:\n{question}\n\n"
                     "Context:\n{context}\n",
@@ -255,9 +266,47 @@ class RagService:
         )
         return f"{answer}\n\nCitations: {appended}"
 
+    def _normalize_session_id(self, session_id: str | None) -> str | None:
+        if not session_id:
+            return None
+        trimmed = session_id.strip()
+        if not trimmed:
+            return None
+        return trimmed[:128]
+
+    def _get_history_text(self, session_id: str | None) -> str:
+        if not self.settings.memory_enabled or not session_id:
+            return EMPTY_HISTORY
+
+        with self._memory_lock:
+            history = list(self._conversation_memory.get(session_id, deque()))
+
+        if not history:
+            return EMPTY_HISTORY
+
+        window = max(1, self.settings.memory_max_turns)
+        lines: list[str] = []
+        for index, (question, answer) in enumerate(history[-window:], start=1):
+            lines.append(f"Turn {index} user: {question}\nTurn {index} assistant: {answer}")
+        return "\n\n".join(lines)
+
+    def _append_memory(self, session_id: str | None, question: str, answer: str) -> None:
+        if not self.settings.memory_enabled or not session_id:
+            return
+
+        max_turns = max(1, self.settings.memory_max_turns)
+        with self._memory_lock:
+            session_memory = self._conversation_memory.get(session_id)
+            if session_memory is None:
+                session_memory = deque(maxlen=max_turns)
+                self._conversation_memory[session_id] = session_memory
+            session_memory.append((question, answer))
+
     def _node_retrieve(self, state: QueryState) -> dict[str, Any]:
         question = state["question"]
-        query_embedding = self.embedding_model.embed_query(question)
+        history = state.get("history", EMPTY_HISTORY)
+        retrieval_query = question if history == EMPTY_HISTORY else f"{history}\n\nCurrent question: {question}"
+        query_embedding = self.embedding_model.embed_query(retrieval_query)
 
         candidate_count = self.settings.top_k
         include_embeddings = False
@@ -301,21 +350,31 @@ class RagService:
             return "generate"
         return "end"
 
-    def _invoke_llm(self, model_name: str, question: str, context: str) -> str:
+    def _invoke_llm(
+        self,
+        model_name: str,
+        question: str,
+        context: str,
+        history: str,
+        session_id: str | None,
+    ) -> str:
         llm = ChatOllama(
             base_url=self.settings.ollama_base_url,
             model=model_name,
             temperature=self.settings.gen_temperature,
             num_predict=self.settings.gen_max_tokens,
         )
-        messages = self.prompt.format_messages(question=question, context=context)
+        messages = self.prompt.format_messages(question=question, context=context, history=history)
 
-        invoke_config: dict[str, Any] = {
-            "metadata": {
-                "component": "rag_query",
-                "question_length": len(question),
-            }
+        metadata: dict[str, Any] = {
+            "component": "rag_query",
+            "question_length": len(question),
+            "has_history": history != EMPTY_HISTORY,
         }
+        if session_id:
+            metadata["session_id"] = session_id
+
+        invoke_config: dict[str, Any] = {"metadata": metadata}
         if self.langfuse_callback is not None:
             invoke_config["callbacks"] = [self.langfuse_callback]
 
@@ -335,13 +394,22 @@ class RagService:
 
         question = state["question"]
         context = state.get("context", "")
-        raw_answer = self._invoke_llm(model_name=model_name, question=question, context=context)
+        history = state.get("history", EMPTY_HISTORY)
+        session_id = state.get("session_id")
+
+        raw_answer = self._invoke_llm(
+            model_name=model_name,
+            question=question,
+            context=context,
+            history=history,
+            session_id=session_id,
+        )
         return {
             "answer": raw_answer,
             "model": model_name,
         }
 
-    def query(self, question: str) -> QueryResult:
+    def query(self, question: str, session_id: str | None = None) -> QueryResult:
         if self.vector_store.count() == 0:
             raise RuntimeError("Vector index is empty. Call /ingest first.")
 
@@ -349,7 +417,16 @@ class RagService:
         if not question:
             raise ValueError("Question cannot be empty")
 
-        result_state = self.query_graph.invoke({"question": question})
+        normalized_session_id = self._normalize_session_id(session_id)
+        history = self._get_history_text(normalized_session_id)
+        result_state = self.query_graph.invoke(
+            {
+                "question": question,
+                "session_id": normalized_session_id,
+                "history": history,
+            }
+        )
+
         selected = result_state.get("selected", [])
         raw_answer = result_state.get("answer", IDK_ANSWER)
 
@@ -357,5 +434,8 @@ class RagService:
             answer = raw_answer
         else:
             answer = self._ensure_citations(raw_answer, selected)
+
+        self._append_memory(normalized_session_id, question, answer)
+
         model_name = result_state.get("model", self.settings.ollama_model)
-        return QueryResult(answer=answer, model=model_name, sources=selected)
+        return QueryResult(answer=answer, model=model_name, sources=selected, session_id=normalized_session_id)

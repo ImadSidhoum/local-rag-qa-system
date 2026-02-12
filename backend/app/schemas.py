@@ -20,6 +20,10 @@ class IngestResponse(BaseModel):
 
 class QueryRequest(BaseModel):
     question: str = Field(min_length=3, description="Natural language question")
+    session_id: str | None = Field(
+        default=None,
+        description="Optional conversation session identifier for multi-turn memory",
+    )
 
 
 class SourceItem(BaseModel):
@@ -34,6 +38,7 @@ class QueryResponse(BaseModel):
     answer: str
     sources: list[SourceItem]
     model: str
+    session_id: str | None = None
 
 
 class HealthResponse(BaseModel):

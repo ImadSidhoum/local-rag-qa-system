@@ -11,6 +11,7 @@ End-to-end local RAG project using:
 - `Langfuse` self-hosted stack (web + worker + db/storage) with optional tracing
 
 This repository answers technical questions over a small PDF corpus and returns grounded answers with explicit source citations (`source + page + chunk_id`).
+It also supports session memory so follow-up questions can reference previous turns.
 
 ## 1) Project Structure
 
@@ -72,13 +73,13 @@ Then ingest directly from frontend using the `Ingest Corpus` button.
 ```bash
 curl -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
-  -d '{"question":"What scaling factor is used in scaled dot-product attention?"}'
+  -d '{"question":"What scaling factor is used in scaled dot-product attention?", "session_id":"demo-session-1"}'
 ```
 
 ### CLI helper
 
 ```bash
-python3 scripts/query.py "How many heads are used in the base Transformer?"
+python3 scripts/query.py "How many heads are used in the base Transformer?" --session-id demo-session-1
 ```
 
 ### Frontend UI
@@ -88,6 +89,8 @@ Open `http://localhost:5173`
 UI features:
 - ingest corpus directly from UI (`Ingest Corpus` button)
 - ask question
+- persistent conversation memory via session id
+- `New Conversation` button to start a fresh session
 - loading/error states
 - generated answer
 - expandable cited sources with page/chunk metadata
@@ -149,6 +152,7 @@ Main adjustable knobs:
 - top-k retrieval
 - optional MMR retrieval
 - temperature/max tokens
+- memory toggle/window size
 - Ollama model and fallback model
 - Langfuse tracing flags/keys
 
@@ -159,10 +163,11 @@ Langfuse services are included in `docker compose` and launch with the default s
 To enable backend tracing:
 1. Open `http://localhost:3000` and create/login to Langfuse.
 2. Create a project and copy the project public/secret API keys.
-3. Create `.env` from `.env.example` (if needed) and set:
+3. In `.env`, set the tracing variables:
 
 ```bash
 LANGFUSE_ENABLED=true
+LANGFUSE_HOST=http://langfuse-web:3000
 LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
 ```
@@ -177,7 +182,24 @@ Notes:
 - In Docker, backend should use `LANGFUSE_HOST=http://langfuse-web:3000` (default in `.env.example`).
 - If running backend outside Docker, set `LANGFUSE_HOST=http://localhost:3000`.
 
-## 9) Troubleshooting
+## 9) Conversation Memory
+
+Memory is session-based and in-process (kept while backend container is running).
+
+Required `.env` vars:
+
+```bash
+MEMORY_ENABLED=true
+MEMORY_MAX_TURNS=6
+```
+
+How it works:
+- Frontend sends a `session_id` with each `/query`.
+- Backend includes recent turns in prompt/retrieval to resolve follow-up references.
+- Click `New Conversation` in UI to start a fresh memory thread.
+- API clients can control memory by reusing/changing `session_id`.
+
+## 10) Troubleshooting
 
 ### Ollama model is missing
 
@@ -189,7 +211,7 @@ docker compose exec ollama ollama pull llama3.2:1b
 
 ### Apple Silicon / low-RAM machine
 
-Use a smaller model in `docker-compose.yml`:
+Use a smaller model in `.env`:
 - `OLLAMA_MODEL=llama3.2:1b`
 
 Then restart backend:
@@ -222,7 +244,7 @@ docker compose down -v
 docker compose up --build -d
 ```
 
-## 10) Git Milestones Used
+## 11) Git Milestones Used
 
 Conventional commits were used for milestones:
 - `chore: init repo`
@@ -232,13 +254,13 @@ Conventional commits were used for milestones:
 - `feat(eval): add evaluation harness`
 - `docs: add explanation and README`
 
-## 11) Stop Services
+## 12) Stop Services
 
 ```bash
 docker compose down
 ```
 
-## 12) Local Backend (uv)
+## 13) Local Backend (uv)
 
 If you want to run backend outside Docker:
 
