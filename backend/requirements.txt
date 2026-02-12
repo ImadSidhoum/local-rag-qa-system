@@ -1,0 +1,11 @@
+fastapi==0.115.7
+uvicorn[standard]==0.34.0
+pydantic-settings==2.8.0
+pydantic==2.10.6
+chromadb==0.5.23
+sentence-transformers==3.4.1
+pypdf==5.2.0
+numpy==2.2.2
+requests==2.32.3
+python-dotenv==1.0.1
+pytest==8.3.4
