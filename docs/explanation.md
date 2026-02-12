@@ -126,6 +126,8 @@ Prompt design enforces:
 - `POST /ingest` (idempotent, optional `force`)
 - `POST /query` → `{answer, sources[], session_id}` with scores + excerpts
 - `GET /config` (safe runtime knobs)
+- `POST /eval/run` + `GET /eval/status/{job_id}` + `GET /eval/results/{job_id}` for async evaluation jobs
+- `GET /eval/artifact/{job_id}/{csv|markdown|jsonl}` for report files
 
 ### React Frontend
 
@@ -133,6 +135,7 @@ Prompt design enforces:
 - Submit/loading/error states
 - Rendered answer with model name
 - Expandable source sections showing page/chunk provenance
+- Evaluation panel with run button, progress polling, aggregate metrics, and artifact links
 
 ## 4) Evaluation Methodology
 
@@ -159,11 +162,13 @@ Artifacts:
 - `docs/evaluation_results.csv`
 - `docs/evaluation_results.md`
 - `docs/evaluation_predictions.jsonl`
+- UI/API job artifacts are persisted under `data/eval/<job_id>/`
 
 Langfuse integration:
 - Evaluation runs can optionally log per-sample traces and metric scores to Langfuse.
 - This is useful for comparing regressions and debugging low-scoring samples from the Langfuse UI.
 - CSV/Markdown artifacts remain the deterministic offline record.
+- Langfuse score logging is currently implemented in the script runner (`scripts/evaluate.py --langfuse`).
 
 ## 5) Results Summary
 
@@ -180,6 +185,7 @@ Known limitations:
 - Single-paper corpus; broader corpora need better document routing and compression.
 - No second-stage reranker by default.
 - No advanced factuality metric (e.g., RAGAS) due local simplicity and runtime cost.
+- Evaluation jobs are serialized (one active job at a time) and currently have no cancel endpoint.
 
 Improvements with more time:
 - Add reranker (`bge-reranker`) to improve top-k precision.

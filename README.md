@@ -65,6 +65,7 @@ Open:
 - Langfuse UI: `http://localhost:3000`
 
 Then ingest directly from frontend using the `Ingest Corpus` button.
+You can also run evaluation directly from frontend using the `Run Evaluation` button.
 
 ## 4) Query the System
 
@@ -154,6 +155,49 @@ Backend evaluation job endpoints (used by UI button):
 - `GET /eval/results/{job_id}`
 - `GET /eval/artifact/{job_id}/{csv|markdown|jsonl}`
 
+### Run Evaluation from UI
+
+Open `http://localhost:5173` and click `Run Evaluation`.
+
+The UI will:
+- create an async job on backend,
+- poll progress,
+- show aggregate metrics when done,
+- expose artifact download links.
+
+Notes:
+- only one evaluation job runs at a time (second launch returns `409`)
+- backend stores artifacts under `data/eval/<job_id>/`
+- UI-triggered eval focuses on local artifacts and does not push eval scores to Langfuse
+
+### Run Evaluation via API
+
+Start job:
+
+```bash
+curl -X POST http://localhost:8000/eval/run \
+  -H "Content-Type: application/json" \
+  -d '{"auto_ingest": true}'
+```
+
+Check status:
+
+```bash
+curl http://localhost:8000/eval/status/<job_id>
+```
+
+Fetch results:
+
+```bash
+curl http://localhost:8000/eval/results/<job_id>
+```
+
+Download artifact:
+
+```bash
+curl -L http://localhost:8000/eval/artifact/<job_id>/markdown
+```
+
 ## 7) Configuration
 
 Backend config template:
@@ -169,6 +213,7 @@ Main adjustable knobs:
 - chunk size/overlap
 - top-k retrieval
 - optional MMR retrieval
+- evaluation dataset path (`EVAL_DATASET_PATH`) and output directory (`EVAL_OUTPUT_DIR`)
 - Chroma telemetry mode (`CHROMA_PRODUCT_TELEMETRY_IMPL`, default no-op)
 - temperature/max tokens
 - query rewrite (follow-up disambiguation before retrieval)
@@ -213,6 +258,8 @@ uv run --with-requirements backend/requirements.txt python scripts/evaluate.py \
   --langfuse-public-key "$LANGFUSE_PUBLIC_KEY" \
   --langfuse-secret-key "$LANGFUSE_SECRET_KEY"
 ```
+
+This Langfuse logging path is provided by `scripts/evaluate.py` (`--langfuse`).
 
 ## 9) Conversation Memory
 
@@ -279,6 +326,21 @@ Use the frontend `Ingest Corpus` button, or run:
 ```bash
 python3 scripts/ingest.py --backend-url http://localhost:8000
 ```
+
+### Evaluation start returns 409
+
+An evaluation job is already running. Wait for completion, then relaunch.
+
+Check current job:
+
+```bash
+curl http://localhost:8000/eval/status/<job_id>
+```
+
+### Evaluation is slow
+
+This is expected on CPU + small local model (`llama3.2:1b`), especially multi-turn samples.
+For quicker runs, reduce dataset size or switch to a faster model if your machine supports it.
 
 ### Langfuse services are not up
 
