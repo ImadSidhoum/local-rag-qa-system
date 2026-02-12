@@ -136,18 +136,33 @@ Prompt design enforces:
 
 ## 4) Evaluation Methodology
 
-Evaluation dataset: `scripts/eval_dataset.json` with 6 question/expected-answer pairs.
+Evaluation dataset: `scripts/eval_dataset.json` with 9 samples:
+- standalone factual QA
+- follow-up multi-turn QA (`conversation_id`) for memory/rewrite behavior
+- one explicit abstention sample (`expect_idk=true`)
 
 Runner: `scripts/evaluate.py`.
+The runner calls the same FastAPI endpoints used by the app (`/health`, `/config`, `/query`, optional `/ingest`) and can replay multi-turn sessions via `conversation_id`.
 
 Metrics:
 1. `cosine_similarity`: embedding similarity between expected and generated answers.
-2. `citation_coverage`: overlap between expected `(source,page)` and returned sources.
-3. `answer_has_citation`: citation format presence in final answer.
+2. `citation_coverage`: expected source-page recall.
+3. `source_precision` / `source_f1`: grounding quality on returned citations.
+4. `answer_has_citation`: citation format presence in final answer.
+5. Optional per-sample metrics:
+   - `required_term_coverage`
+   - `rewrite_term_coverage`
+   - `idk_correct`
 
 Artifacts:
 - `docs/evaluation_results.csv`
 - `docs/evaluation_results.md`
+- `docs/evaluation_predictions.jsonl`
+
+Langfuse integration:
+- Evaluation runs can optionally log per-sample traces and metric scores to Langfuse.
+- This is useful for comparing regressions and debugging low-scoring samples from the Langfuse UI.
+- CSV/Markdown artifacts remain the deterministic offline record.
 
 ## 5) Results Summary
 

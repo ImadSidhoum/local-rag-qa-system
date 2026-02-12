@@ -116,25 +116,35 @@ curl -X POST http://localhost:8000/ingest \
 ## 6) Evaluation
 
 Dataset file:
-- `scripts/eval_dataset.json` (6 QA samples with expected answers + expected sources)
+- `scripts/eval_dataset.json` (9 samples, including follow-up and abstention cases)
 
 Run evaluation:
 
 ```bash
-python3 scripts/evaluate.py \
+uv run --with-requirements backend/requirements.txt python scripts/evaluate.py \
   --backend-url http://localhost:8000 \
   --dataset scripts/eval_dataset.json \
+  --auto-ingest \
   --output-dir docs
 ```
 
 Outputs:
 - `docs/evaluation_results.csv`
 - `docs/evaluation_results.md`
+- `docs/evaluation_predictions.jsonl`
 
 Metrics implemented:
 - `cosine_similarity` (expected vs generated answer embedding similarity)
-- `citation_coverage` (expected source-page overlap with returned sources)
+- `citation_coverage` (source-page recall against expected sources)
+- `source_precision` and `source_f1` (grounding quality)
 - `answer_has_citation` (binary presence of citation format in answer)
+- `required_term_coverage` (optional per-sample key-term coverage)
+- `rewrite_term_coverage` (optional follow-up rewrite quality)
+- `idk_correct` (optional abstention correctness)
+
+Session-aware eval:
+- Add `conversation_id` in dataset rows to evaluate memory + rewrite over turns.
+- Add `expected_rewrite_contains` for follow-up rows that should be rewritten before retrieval.
 
 ## 7) Configuration
 
@@ -183,6 +193,18 @@ docker compose up -d --build backend
 Notes:
 - In Docker, backend should use `LANGFUSE_HOST=http://langfuse-web:3000` (default in `.env.example`).
 - If running backend outside Docker, set `LANGFUSE_HOST=http://localhost:3000`.
+
+Optional: log evaluation runs to Langfuse:
+
+```bash
+uv run --with-requirements backend/requirements.txt python scripts/evaluate.py \
+  --backend-url http://localhost:8000 \
+  --dataset scripts/eval_dataset.json \
+  --langfuse \
+  --langfuse-host http://localhost:3000 \
+  --langfuse-public-key "$LANGFUSE_PUBLIC_KEY" \
+  --langfuse-secret-key "$LANGFUSE_SECRET_KEY"
+```
 
 ## 9) Conversation Memory
 

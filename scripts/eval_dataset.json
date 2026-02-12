@@ -3,19 +3,22 @@
     "id": "q1",
     "question": "Why do the authors remove recurrence and convolution in the Transformer?",
     "expected_answer": "The paper argues recurrence limits parallelization and increases path length. Self-attention enables more parallel computation and shorter paths between dependencies.",
-    "expected_sources": [{"source": "attention_is_all_you_need.pdf", "page": 1}]
+    "expected_sources": [{"source": "attention_is_all_you_need.pdf", "page": 1}],
+    "required_terms": ["parallel", "path"]
   },
   {
     "id": "q2",
     "question": "What scaling factor is used in scaled dot-product attention, and why?",
     "expected_answer": "The dot product is scaled by 1/sqrt(d_k) to prevent large magnitude values that push softmax into regions with tiny gradients.",
-    "expected_sources": [{"source": "attention_is_all_you_need.pdf", "page": 4}]
+    "expected_sources": [{"source": "attention_is_all_you_need.pdf", "page": 4}],
+    "required_terms": ["1/sqrt", "softmax"]
   },
   {
     "id": "q3",
     "question": "How does the computational complexity per layer of self-attention compare with recurrent layers?",
     "expected_answer": "Self-attention has O(n^2 * d) complexity per layer while recurrent layers have O(n * d^2), with trade-offs depending on sequence length and representation dimension.",
-    "expected_sources": [{"source": "attention_is_all_you_need.pdf", "page": 6}]
+    "expected_sources": [{"source": "attention_is_all_you_need.pdf", "page": 6}],
+    "required_terms": ["n^2", "d^2"]
   },
   {
     "id": "q4",
@@ -34,5 +37,29 @@
     "question": "What optimizer and learning-rate schedule are used?",
     "expected_answer": "They use Adam with beta1=0.9, beta2=0.98, epsilon=1e-9, and a warmup/inverse-square-root learning-rate schedule with 4000 warmup steps.",
     "expected_sources": [{"source": "attention_is_all_you_need.pdf", "page": 7}]
+  },
+  {
+    "id": "q7",
+    "conversation_id": "scaled-dot-product-followup",
+    "question": "What is scaled dot-product attention?",
+    "expected_answer": "Scaled dot-product attention computes attention weights from query-key dot products, scales by 1/sqrt(d_k), and applies softmax to value-weighted sums.",
+    "expected_sources": [{"source": "attention_is_all_you_need.pdf", "page": 4}],
+    "required_terms": ["query", "key", "softmax"]
+  },
+  {
+    "id": "q8",
+    "conversation_id": "scaled-dot-product-followup",
+    "question": "Why is it scaled?",
+    "expected_answer": "It is scaled by 1/sqrt(d_k) to avoid large dot-product values that push softmax into very small gradients.",
+    "expected_sources": [{"source": "attention_is_all_you_need.pdf", "page": 4}],
+    "expected_rewrite_contains": ["scaled dot-product attention"],
+    "required_terms": ["1/sqrt", "softmax"]
+  },
+  {
+    "id": "q9",
+    "question": "What GPU memory size was used to pretrain Llama 3 in this document?",
+    "expected_answer": "I don't know based on the provided documents.",
+    "expected_sources": [],
+    "expect_idk": true
   }
 ]
