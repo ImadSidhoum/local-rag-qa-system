@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     ollama_auto_pull: bool = Field(default=True, alias="OLLAMA_AUTO_PULL")
     gen_temperature: float = Field(default=0.1, alias="GEN_TEMPERATURE")
     gen_max_tokens: int = Field(default=450, alias="GEN_MAX_TOKENS")
+    query_rewrite_enabled: bool = Field(default=True, alias="QUERY_REWRITE_ENABLED")
+    query_rewrite_max_tokens: int = Field(default=96, alias="QUERY_REWRITE_MAX_TOKENS")
     memory_enabled: bool = Field(default=True, alias="MEMORY_ENABLED")
     memory_max_turns: int = Field(default=6, alias="MEMORY_MAX_TURNS")
 

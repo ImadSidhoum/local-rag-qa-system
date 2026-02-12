@@ -72,6 +72,8 @@ def config() -> ConfigResponse:
         "ollama_fallback_model": settings.ollama_fallback_model,
         "temperature": settings.gen_temperature,
         "max_tokens": settings.gen_max_tokens,
+        "query_rewrite_enabled": settings.query_rewrite_enabled,
+        "query_rewrite_max_tokens": settings.query_rewrite_max_tokens,
         "memory_enabled": settings.memory_enabled,
         "memory_max_turns": settings.memory_max_turns,
         "langfuse_enabled": settings.langfuse_enabled,
@@ -127,4 +129,10 @@ def query(payload: QueryRequest) -> QueryResponse:
         for chunk in result.sources
     ]
 
-    return QueryResponse(answer=result.answer, model=result.model, sources=sources, session_id=result.session_id)
+    return QueryResponse(
+        answer=result.answer,
+        model=result.model,
+        sources=sources,
+        session_id=result.session_id,
+        rewritten_question=result.rewritten_question,
+    )

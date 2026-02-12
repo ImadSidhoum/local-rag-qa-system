@@ -13,6 +13,7 @@ type QueryResponse = {
   model: string;
   sources: Source[];
   session_id?: string | null;
+  rewritten_question?: string | null;
 };
 
 type IngestResponse = {
@@ -249,6 +250,11 @@ export default function App() {
               <h2>Answer</h2>
               <span>Model: {answer.model}</span>
             </div>
+            {answer.rewritten_question && answer.rewritten_question !== question.trim() && (
+              <p className="status-line">
+                Retrieval query: <strong>{answer.rewritten_question}</strong>
+              </p>
+            )}
             <article className="answer">{answer.answer}</article>
 
             <h3>Sources</h3>

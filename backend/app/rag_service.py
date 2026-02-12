@@ -39,6 +39,15 @@ Rules:
 
 IDK_ANSWER = "I don't know based on the provided documents."
 EMPTY_HISTORY = "(none)"
+REWRITE_SYSTEM_PROMPT = """
+You rewrite follow-up questions into standalone questions for vector retrieval.
+Rules:
+1) Keep intent unchanged.
+2) Resolve pronouns/references using conversation history.
+3) Keep it concise and specific.
+4) If question is already standalone, return it unchanged.
+5) Output only the rewritten question text.
+""".strip()
 
 
 @dataclass
@@ -57,12 +66,14 @@ class QueryResult:
     model: str
     sources: list[RetrievedChunk]
     session_id: str | None = None
+    rewritten_question: str | None = None
 
 
 class QueryState(TypedDict, total=False):
     question: str
     session_id: str
     history: str
+    rewritten_question: str
     selected: list[RetrievedChunk]
     context: str
     answer: str
@@ -97,15 +108,27 @@ class RagService:
                 ),
             ]
         )
+        self.rewrite_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", REWRITE_SYSTEM_PROMPT),
+                (
+                    "human",
+                    "Conversation history:\n{history}\n\nCurrent question:\n{question}\n\n"
+                    "Return rewritten standalone question:",
+                ),
+            ]
+        )
         self.query_graph = self._build_query_graph()
 
     def _build_query_graph(self) -> Any:
         graph = StateGraph(QueryState)
+        graph.add_node("rewrite", self._node_rewrite)
         graph.add_node("retrieve", self._node_retrieve)
         graph.add_node("gate", self._node_gate)
         graph.add_node("generate", self._node_generate)
 
-        graph.set_entry_point("retrieve")
+        graph.set_entry_point("rewrite")
+        graph.add_edge("rewrite", "retrieve")
         graph.add_edge("retrieve", "gate")
         graph.add_conditional_edges(
             "gate",
@@ -302,10 +325,74 @@ class RagService:
                 self._conversation_memory[session_id] = session_memory
             session_memory.append((question, answer))
 
-    def _node_retrieve(self, state: QueryState) -> dict[str, Any]:
+    def _sanitize_rewritten_question(self, candidate: str, fallback: str) -> str:
+        cleaned = candidate.strip().strip("\"'`")
+        cleaned = " ".join(cleaned.split())
+        if not cleaned:
+            return fallback
+        if len(cleaned) > 500:
+            return cleaned[:500].rstrip()
+        return cleaned
+
+    def _rewrite_question_with_llm(self, model_name: str, history: str, question: str, session_id: str | None) -> str:
+        llm = ChatOllama(
+            base_url=self.settings.ollama_base_url,
+            model=model_name,
+            temperature=0.0,
+            num_predict=max(16, self.settings.query_rewrite_max_tokens),
+        )
+        messages = self.rewrite_prompt.format_messages(history=history, question=question)
+
+        metadata: dict[str, Any] = {
+            "component": "query_rewrite",
+            "history_used": history != EMPTY_HISTORY,
+        }
+        if session_id:
+            metadata["session_id"] = session_id
+
+        invoke_config: dict[str, Any] = {"metadata": metadata}
+        if self.langfuse_callback is not None:
+            invoke_config["callbacks"] = [self.langfuse_callback]
+
+        response = llm.invoke(messages, config=invoke_config)
+        content = getattr(response, "content", "")
+        rewritten = content if isinstance(content, str) else str(content)
+        return self._sanitize_rewritten_question(rewritten, fallback=question)
+
+    def _node_rewrite(self, state: QueryState) -> dict[str, Any]:
         question = state["question"]
         history = state.get("history", EMPTY_HISTORY)
-        retrieval_query = question if history == EMPTY_HISTORY else f"{history}\n\nCurrent question: {question}"
+        session_id = state.get("session_id")
+
+        if not self.settings.query_rewrite_enabled or history == EMPTY_HISTORY:
+            return {"rewritten_question": question}
+
+        if not self.ollama_client.wait_until_ready(attempts=5, sleep_seconds=1):
+            logger.warning("Skipping rewrite because Ollama is not ready")
+            return {"rewritten_question": question}
+
+        try:
+            model_name = self.ollama_client.ensure_model(
+                primary_model=self.settings.ollama_model,
+                fallback_model=self.settings.ollama_fallback_model,
+                auto_pull=self.settings.ollama_auto_pull,
+            )
+            rewritten_question = self._rewrite_question_with_llm(
+                model_name=model_name,
+                history=history,
+                question=question,
+                session_id=session_id,
+            )
+            return {
+                "rewritten_question": rewritten_question,
+                "model": model_name,
+            }
+        except Exception as exc:  # pragma: no cover
+            logger.warning("Query rewrite failed, using original question: %s", exc)
+            return {"rewritten_question": question}
+
+    def _node_retrieve(self, state: QueryState) -> dict[str, Any]:
+        retrieval_query = state.get("rewritten_question", state["question"])
         query_embedding = self.embedding_model.embed_query(retrieval_query)
 
         candidate_count = self.settings.top_k
@@ -386,11 +473,13 @@ class RagService:
         if not self.ollama_client.wait_until_ready(attempts=20, sleep_seconds=2):
             raise RuntimeError("Ollama service is not ready")
 
-        model_name = self.ollama_client.ensure_model(
-            primary_model=self.settings.ollama_model,
-            fallback_model=self.settings.ollama_fallback_model,
-            auto_pull=self.settings.ollama_auto_pull,
-        )
+        model_name = state.get("model")
+        if not model_name:
+            model_name = self.ollama_client.ensure_model(
+                primary_model=self.settings.ollama_model,
+                fallback_model=self.settings.ollama_fallback_model,
+                auto_pull=self.settings.ollama_auto_pull,
+            )
 
         question = state["question"]
         context = state.get("context", "")
@@ -438,4 +527,11 @@ class RagService:
         self._append_memory(normalized_session_id, question, answer)
 
         model_name = result_state.get("model", self.settings.ollama_model)
-        return QueryResult(answer=answer, model=model_name, sources=selected, session_id=normalized_session_id)
+        rewritten_question = result_state.get("rewritten_question", question)
+        return QueryResult(
+            answer=answer,
+            model=model_name,
+            sources=selected,
+            session_id=normalized_session_id,
+            rewritten_question=rewritten_question,
+        )

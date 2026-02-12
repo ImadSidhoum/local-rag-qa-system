@@ -73,6 +73,7 @@ Persistence is backed by Docker named volume `chroma_data`.
 - Similarity threshold (`MIN_SIMILARITY`) triggers a safe abstention response.
 - Retrieval, gating, and generation are executed by a compiled LangGraph state machine for deterministic flow.
 - If memory is enabled, recent session turns are included in retrieval query expansion to improve follow-up resolution.
+- A rewrite node runs before retrieval to convert follow-up questions into standalone queries prior to embedding lookup.
 
 ### Generation
 
@@ -108,6 +109,13 @@ Prompt design enforces:
   - `MEMORY_ENABLED` (default `true`)
   - `MEMORY_MAX_TURNS` (default `6`)
 - Memory is in-process (resets when backend restarts).
+
+### Query Rewrite
+
+- Controls:
+  - `QUERY_REWRITE_ENABLED` (default `true`)
+  - `QUERY_REWRITE_MAX_TOKENS` (default `96`)
+- Rewriter uses conversation history to resolve references (e.g., `its`, `that`) before vector search.
 
 ## 3) API and Frontend
 

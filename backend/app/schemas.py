@@ -39,6 +39,7 @@ class QueryResponse(BaseModel):
     sources: list[SourceItem]
     model: str
     session_id: str | None = None
+    rewritten_question: str | None = None
 
 
 class HealthResponse(BaseModel):

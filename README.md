@@ -152,6 +152,7 @@ Main adjustable knobs:
 - top-k retrieval
 - optional MMR retrieval
 - temperature/max tokens
+- query rewrite (follow-up disambiguation before retrieval)
 - memory toggle/window size
 - Ollama model and fallback model
 - Langfuse tracing flags/keys
@@ -199,7 +200,25 @@ How it works:
 - Click `New Conversation` in UI to start a fresh memory thread.
 - API clients can control memory by reusing/changing `session_id`.
 
-## 10) Troubleshooting
+## 10) Query Rewriting Before Retrieval
+
+Follow-up questions are rewritten to standalone form before embedding/retrieval.
+
+Example:
+- Q1: `What's a self-attention layer?`
+- Q2: `What's its complexity?`
+- Rewritten retrieval query: `What is the complexity of a self-attention layer?`
+
+Control via `.env`:
+
+```bash
+QUERY_REWRITE_ENABLED=true
+QUERY_REWRITE_MAX_TOKENS=96
+```
+
+The rewritten query is returned in API response as `rewritten_question`.
+
+## 11) Troubleshooting
 
 ### Ollama model is missing
 
@@ -244,7 +263,7 @@ docker compose down -v
 docker compose up --build -d
 ```
 
-## 11) Git Milestones Used
+## 12) Git Milestones Used
 
 Conventional commits were used for milestones:
 - `chore: init repo`
@@ -254,13 +273,13 @@ Conventional commits were used for milestones:
 - `feat(eval): add evaluation harness`
 - `docs: add explanation and README`
 
-## 12) Stop Services
+## 13) Stop Services
 
 ```bash
 docker compose down
 ```
 
-## 13) Local Backend (uv)
+## 14) Local Backend (uv)
 
 If you want to run backend outside Docker:
 
