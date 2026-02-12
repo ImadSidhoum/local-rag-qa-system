@@ -140,7 +140,9 @@ class RagService:
             persist_directory=str(self.settings.chroma_dir),
             embedding_function=self.embedding_model,
             client_settings=ChromaSettings(
-                anonymized_telemetry=self.settings.chroma_anonymized_telemetry
+                anonymized_telemetry=self.settings.chroma_anonymized_telemetry,
+                chroma_product_telemetry_impl=self.settings.chroma_product_telemetry_impl,
+                chroma_telemetry_impl=self.settings.chroma_telemetry_impl,
             ),
             collection_metadata={"hnsw:space": "cosine"},
         )

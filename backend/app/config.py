@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     chroma_collection_name: str = Field(default="rag_chunks", alias="CHROMA_COLLECTION_NAME")
     index_manifest_path: Path = Field(default=Path("/app/data/index_manifest.json"), alias="INDEX_MANIFEST_PATH")
     chroma_anonymized_telemetry: bool = Field(default=False, alias="CHROMA_ANONYMIZED_TELEMETRY")
+    chroma_product_telemetry_impl: str = Field(
+        default="app.chroma_telemetry.NoOpProductTelemetry",
+        alias="CHROMA_PRODUCT_TELEMETRY_IMPL",
+    )
+    chroma_telemetry_impl: str = Field(
+        default="app.chroma_telemetry.NoOpProductTelemetry",
+        alias="CHROMA_TELEMETRY_IMPL",
+    )
 
     embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2", alias="EMBEDDING_MODEL")
     batch_size: int = Field(default=32, alias="BATCH_SIZE")

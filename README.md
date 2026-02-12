@@ -151,6 +151,7 @@ Main adjustable knobs:
 - chunk size/overlap
 - top-k retrieval
 - optional MMR retrieval
+- Chroma telemetry mode (`CHROMA_PRODUCT_TELEMETRY_IMPL`, default no-op)
 - temperature/max tokens
 - query rewrite (follow-up disambiguation before retrieval)
 - memory toggle/window size

@@ -65,6 +65,7 @@ Why:
 - Easy reset/rebuild flow for idempotent ingestion.
 
 Persistence is backed by Docker named volume `chroma_data`.
+Telemetry is hard-disabled with a no-op Chroma telemetry client to avoid noisy runtime warnings.
 
 ### Retrieval
 
