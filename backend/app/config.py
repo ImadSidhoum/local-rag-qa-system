@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     corpus_dir: Path = Field(default=Path("/app/data/corpus"), alias="CORPUS_DIR")
     chroma_dir: Path = Field(default=Path("/app/data/chroma"), alias="CHROMA_DIR")
     index_manifest_path: Path = Field(default=Path("/app/data/index_manifest.json"), alias="INDEX_MANIFEST_PATH")
+    chroma_anonymized_telemetry: bool = Field(default=False, alias="CHROMA_ANONYMIZED_TELEMETRY")
 
     embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2", alias="EMBEDDING_MODEL")
     batch_size: int = Field(default=32, alias="BATCH_SIZE")

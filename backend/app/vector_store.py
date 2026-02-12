@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import chromadb
+from chromadb.config import Settings as ChromaSettings
 
 from app.chunking import TextChunk
 
@@ -21,8 +22,16 @@ class RetrievedChunk:
 
 
 class ChromaVectorStore:
-    def __init__(self, persist_dir: Path, collection_name: str = "rag_chunks") -> None:
-        self.client = chromadb.PersistentClient(path=str(persist_dir))
+    def __init__(
+        self,
+        persist_dir: Path,
+        collection_name: str = "rag_chunks",
+        anonymized_telemetry: bool = False,
+    ) -> None:
+        self.client = chromadb.PersistentClient(
+            path=str(persist_dir),
+            settings=ChromaSettings(anonymized_telemetry=anonymized_telemetry),
+        )
         self.collection_name = collection_name
         self.collection = self.client.get_or_create_collection(
             name=collection_name,

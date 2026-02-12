@@ -43,7 +43,10 @@ def startup() -> None:
     np.random.seed(settings.random_seed)
 
     embedding_model = EmbeddingModel(settings.embedding_model, settings.batch_size)
-    vector_store = ChromaVectorStore(settings.chroma_dir)
+    vector_store = ChromaVectorStore(
+        settings.chroma_dir,
+        anonymized_telemetry=settings.chroma_anonymized_telemetry,
+    )
     ollama_client = OllamaClient(settings.ollama_base_url, settings.ollama_timeout_seconds)
     app.state.rag_service = RagService(settings, embedding_model, vector_store, ollama_client)
 
