@@ -77,7 +77,7 @@ Persistence is backed by Docker named volume `chroma_data`.
 
 Runtime: `Ollama` service in Docker.
 
-Default model: `llama3.2:3b` (configurable), with documented fallback for weaker hardware (`llama3.2:1b`).
+Default model: `llama3.2:1b` (configurable), chosen for good local speed/memory on Apple Silicon laptops, with fallback (`llama3.2:1b`).
 
 Prompt design enforces:
 - use context only,

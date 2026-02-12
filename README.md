@@ -184,10 +184,10 @@ Notes:
 The backend can auto-pull (`OLLAMA_AUTO_PULL=true`). If disabled, pull manually:
 
 ```bash
-docker compose exec ollama ollama pull llama3.2:3b
+docker compose exec ollama ollama pull llama3.2:1b
 ```
 
-### Low-RAM machine
+### Apple Silicon / low-RAM machine
 
 Use a smaller model in `docker-compose.yml`:
 - `OLLAMA_MODEL=llama3.2:1b`

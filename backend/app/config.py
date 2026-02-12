@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     min_similarity: float = Field(default=0.2, alias="MIN_SIMILARITY")
 
     ollama_base_url: str = Field(default="http://ollama:11434", alias="OLLAMA_BASE_URL")
-    ollama_model: str = Field(default="llama3.2:3b", alias="OLLAMA_MODEL")
+    ollama_model: str = Field(default="llama3.2:1b", alias="OLLAMA_MODEL")
     ollama_fallback_model: str = Field(default="llama3.2:1b", alias="OLLAMA_FALLBACK_MODEL")
     ollama_timeout_seconds: int = Field(default=240, alias="OLLAMA_TIMEOUT_SECONDS")
     ollama_auto_pull: bool = Field(default=True, alias="OLLAMA_AUTO_PULL")
