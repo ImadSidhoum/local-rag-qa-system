@@ -3,9 +3,12 @@
 End-to-end local RAG project using:
 - `FastAPI` backend
 - `React + TypeScript + Vite` frontend
+- `LangChain` for prompt + LLM runtime abstraction
+- `LangGraph` for query orchestration graph
 - `Sentence-Transformers` embeddings
 - `ChromaDB` local persistent vector store
 - `Ollama` local open-source LLM runtime
+- `Langfuse` (optional) for local/self-hosted tracing
 
 This repository answers technical questions over a small PDF corpus and returns grounded answers with explicit source citations (`source + page + chunk_id`).
 
@@ -38,6 +41,8 @@ bash data/download_corpus.sh
 
 Prerequisites:
 - Docker + Docker Compose
+
+Backend dependency installation inside the container uses `uv`.
 
 Commands:
 
@@ -134,8 +139,23 @@ Main adjustable knobs:
 - optional MMR retrieval
 - temperature/max tokens
 - Ollama model and fallback model
+- Langfuse tracing flags/keys
 
-## 8) Troubleshooting
+## 8) Langfuse Tracing (Optional)
+
+Langfuse is integrated via LangChain callbacks and is disabled by default.
+
+Set environment variables (for your local/self-hosted Langfuse instance):
+
+```bash
+export LANGFUSE_ENABLED=true
+export LANGFUSE_HOST=http://localhost:3000
+export LANGFUSE_PUBLIC_KEY=your_public_key
+export LANGFUSE_SECRET_KEY=your_secret_key
+docker compose up -d --build backend
+```
+
+## 9) Troubleshooting
 
 ### Ollama model is missing
 
@@ -171,7 +191,7 @@ docker compose down -v
 docker compose up --build -d
 ```
 
-## 9) Git Milestones Used
+## 10) Git Milestones Used
 
 Conventional commits were used for milestones:
 - `chore: init repo`
@@ -181,8 +201,20 @@ Conventional commits were used for milestones:
 - `feat(eval): add evaluation harness`
 - `docs: add explanation and README`
 
-## 10) Stop Services
+## 11) Stop Services
 
 ```bash
 docker compose down
+```
+
+## 12) Local Backend (uv)
+
+If you want to run backend outside Docker:
+
+```bash
+cd backend
+uv venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```

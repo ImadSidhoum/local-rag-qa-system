@@ -46,6 +46,10 @@ services:
       OLLAMA_AUTO_PULL: "true"
       GEN_TEMPERATURE: 0.1
       GEN_MAX_TOKENS: 450
+      LANGFUSE_ENABLED: "${LANGFUSE_ENABLED:-false}"
+      LANGFUSE_HOST: "${LANGFUSE_HOST:-http://localhost:3000}"
+      LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
+      LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-}"
       RANDOM_SEED: 42
     volumes:
       - ./data:/app/data

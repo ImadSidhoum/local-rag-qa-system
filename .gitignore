@@ -21,6 +21,7 @@ frontend/dist/
 data/chroma/
 data/index_manifest.json
 data/eval_results/
+data/corpus/*.pdf
 
 # OS/editor
 .DS_Store

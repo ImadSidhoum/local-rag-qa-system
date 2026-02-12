@@ -6,14 +6,20 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, TypedDict
 
 import numpy as np
+from langchain_core.documents import Document
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_ollama import ChatOllama
+from langgraph.graph import END, StateGraph
 
-from app.chunking import TextChunk, chunk_pages
+from app.chunking import chunk_pages
 from app.config import Settings
 from app.embeddings import EmbeddingModel
+from app.langfuse_utils import build_langfuse_callback
 from app.ollama_client import OllamaClient
-from app.pdf_ingestion import PageDocument, load_corpus_pages
+from app.pdf_ingestion import load_corpus_pages
 from app.vector_store import ChromaVectorStore, RetrievedChunk
 
 logger = logging.getLogger(__name__)
@@ -27,6 +33,8 @@ Rules:
 4) Never invent sources or page numbers.
 5) Keep the answer concise and technical.
 """.strip()
+
+IDK_ANSWER = "I don't know based on the provided documents."
 
 
 @dataclass
@@ -46,6 +54,14 @@ class QueryResult:
     sources: list[RetrievedChunk]
 
 
+class QueryState(TypedDict, total=False):
+    question: str
+    selected: list[RetrievedChunk]
+    context: str
+    answer: str
+    model: str
+
+
 class RagService:
     def __init__(
         self,
@@ -58,6 +74,38 @@ class RagService:
         self.embedding_model = embedding_model
         self.vector_store = vector_store
         self.ollama_client = ollama_client
+        self.langfuse_callback = build_langfuse_callback(settings)
+        self.prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", SYSTEM_PROMPT),
+                (
+                    "human",
+                    "Answer the question using only the context below.\n\n"
+                    "Question:\n{question}\n\n"
+                    "Context:\n{context}\n",
+                ),
+            ]
+        )
+        self.query_graph = self._build_query_graph()
+
+    def _build_query_graph(self) -> Any:
+        graph = StateGraph(QueryState)
+        graph.add_node("retrieve", self._node_retrieve)
+        graph.add_node("gate", self._node_gate)
+        graph.add_node("generate", self._node_generate)
+
+        graph.set_entry_point("retrieve")
+        graph.add_edge("retrieve", "gate")
+        graph.add_conditional_edges(
+            "gate",
+            self._route_after_gate,
+            {
+                "generate": "generate",
+                "end": END,
+            },
+        )
+        graph.add_edge("generate", END)
+        return graph.compile()
 
     def _manifest_fingerprint(self, pdf_files: list[Path]) -> str:
         fingerprint_payload = {
@@ -169,12 +217,28 @@ class RagService:
             item.embedding = None
         return selected
 
+    def _to_documents(self, chunks: list[RetrievedChunk]) -> list[Document]:
+        return [
+            Document(
+                page_content=chunk.text,
+                metadata={
+                    "source": chunk.source,
+                    "page": chunk.page,
+                    "chunk_id": chunk.chunk_id,
+                    "score": round(chunk.score, 4),
+                },
+            )
+            for chunk in chunks
+        ]
+
     def _format_context(self, chunks: list[RetrievedChunk]) -> str:
+        documents = self._to_documents(chunks)
         lines: list[str] = []
-        for idx, chunk in enumerate(chunks, start=1):
+        for idx, document in enumerate(documents, start=1):
             lines.append(
-                f"[{idx}] source={chunk.source} page={chunk.page} chunk={chunk.chunk_id} score={chunk.score:.3f}\n"
-                f"{chunk.text}"
+                f"[{idx}] source={document.metadata['source']} page={document.metadata['page']} "
+                f"chunk={document.metadata['chunk_id']} score={document.metadata['score']:.3f}\n"
+                f"{document.page_content}"
             )
         return "\n\n".join(lines)
 
@@ -191,14 +255,8 @@ class RagService:
         )
         return f"{answer}\n\nCitations: {appended}"
 
-    def query(self, question: str) -> QueryResult:
-        if self.vector_store.count() == 0:
-            raise RuntimeError("Vector index is empty. Call /ingest first.")
-
-        question = question.strip()
-        if not question:
-            raise ValueError("Question cannot be empty")
-
+    def _node_retrieve(self, state: QueryState) -> dict[str, Any]:
+        question = state["question"]
         query_embedding = self.embedding_model.embed_query(question)
 
         candidate_count = self.settings.top_k
@@ -218,28 +276,54 @@ class RagService:
         else:
             selected = candidates[: self.settings.top_k]
 
+        return {"selected": selected}
+
+    def _node_gate(self, state: QueryState) -> dict[str, Any]:
+        selected = state.get("selected", [])
         if not selected:
-            return QueryResult(
-                answer="I don't know based on the provided documents.",
-                model=self.settings.ollama_model,
-                sources=[],
-            )
+            return {
+                "answer": IDK_ANSWER,
+                "model": self.settings.ollama_model,
+            }
 
         best_score = max(chunk.score for chunk in selected)
         if best_score < self.settings.min_similarity:
-            return QueryResult(
-                answer="I don't know based on the provided documents.",
-                model=self.settings.ollama_model,
-                sources=selected,
-            )
+            return {
+                "answer": IDK_ANSWER,
+                "model": self.settings.ollama_model,
+            }
 
         context = self._format_context(selected)
-        user_prompt = (
-            "Answer the question using only the context below.\n\n"
-            f"Question:\n{question}\n\n"
-            f"Context:\n{context}\n"
-        )
+        return {"context": context}
 
+    def _route_after_gate(self, state: QueryState) -> str:
+        if state.get("context"):
+            return "generate"
+        return "end"
+
+    def _invoke_llm(self, model_name: str, question: str, context: str) -> str:
+        llm = ChatOllama(
+            base_url=self.settings.ollama_base_url,
+            model=model_name,
+            temperature=self.settings.gen_temperature,
+            num_predict=self.settings.gen_max_tokens,
+        )
+        messages = self.prompt.format_messages(question=question, context=context)
+
+        invoke_config: dict[str, Any] = {
+            "metadata": {
+                "component": "rag_query",
+                "question_length": len(question),
+            }
+        }
+        if self.langfuse_callback is not None:
+            invoke_config["callbacks"] = [self.langfuse_callback]
+
+        response = llm.invoke(messages, config=invoke_config)
+        content = getattr(response, "content", "")
+        return content if isinstance(content, str) else str(content)
+
+    def _node_generate(self, state: QueryState) -> dict[str, Any]:
         if not self.ollama_client.wait_until_ready(attempts=20, sleep_seconds=2):
             raise RuntimeError("Ollama service is not ready")
 
@@ -249,13 +333,29 @@ class RagService:
             auto_pull=self.settings.ollama_auto_pull,
         )
 
-        raw_answer = self.ollama_client.chat(
-            model=model_name,
-            system_prompt=SYSTEM_PROMPT,
-            user_prompt=user_prompt,
-            temperature=self.settings.gen_temperature,
-            max_tokens=self.settings.gen_max_tokens,
-        )
+        question = state["question"]
+        context = state.get("context", "")
+        raw_answer = self._invoke_llm(model_name=model_name, question=question, context=context)
+        return {
+            "answer": raw_answer,
+            "model": model_name,
+        }
 
-        answer = self._ensure_citations(raw_answer, selected)
+    def query(self, question: str) -> QueryResult:
+        if self.vector_store.count() == 0:
+            raise RuntimeError("Vector index is empty. Call /ingest first.")
+
+        question = question.strip()
+        if not question:
+            raise ValueError("Question cannot be empty")
+
+        result_state = self.query_graph.invoke({"question": question})
+        selected = result_state.get("selected", [])
+        raw_answer = result_state.get("answer", IDK_ANSWER)
+
+        if raw_answer == IDK_ANSWER:
+            answer = raw_answer
+        else:
+            answer = self._ensure_citations(raw_answer, selected)
+        model_name = result_state.get("model", self.settings.ollama_model)
         return QueryResult(answer=answer, model=model_name, sources=selected)

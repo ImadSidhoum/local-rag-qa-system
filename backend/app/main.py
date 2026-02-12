@@ -69,6 +69,8 @@ def config() -> ConfigResponse:
         "ollama_fallback_model": settings.ollama_fallback_model,
         "temperature": settings.gen_temperature,
         "max_tokens": settings.gen_max_tokens,
+        "langfuse_enabled": settings.langfuse_enabled,
+        "langfuse_host": settings.langfuse_host,
     }
     return ConfigResponse(config=exposed)
 

@@ -11,6 +11,12 @@ The file is not committed directly; instead, `data/download_corpus.sh` provides 
 
 ## 2) RAG Architecture
 
+Orchestration stack:
+- `LangGraph`: query flow graph (`retrieve -> gate -> generate`)
+- `LangChain`: prompt templates + Ollama chat model invocation
+- `Langfuse`: optional tracing through LangChain callbacks
+- `uv`: Python dependency installation/runtime command wrapper in backend workflows
+
 ### Ingestion
 
 - Parser: `pypdf` (`PdfReader`) for robust text extraction.
@@ -62,6 +68,7 @@ Persistence is backed by Docker named volume `chroma_data`.
 - Default top-k retrieval (`TOP_K=4`).
 - Optional MMR reranking (`USE_MMR=true`) with configurable `MMR_CANDIDATES` and `MMR_LAMBDA`.
 - Similarity threshold (`MIN_SIMILARITY`) triggers a safe abstention response.
+- Retrieval, gating, and generation are executed by a compiled LangGraph state machine for deterministic flow.
 
 ### Generation
 
@@ -73,6 +80,15 @@ Prompt design enforces:
 - use context only,
 - abstain with exact text if unsupported,
 - include structured citations: `[source=<filename> page=<page> chunk=<chunk_id>]`.
+
+### Observability (Langfuse)
+
+- Langfuse is wired as an optional callback for LangChain model calls.
+- It is disabled by default; enable with:
+  - `LANGFUSE_ENABLED=true`
+  - `LANGFUSE_HOST`
+  - `LANGFUSE_PUBLIC_KEY`
+  - `LANGFUSE_SECRET_KEY`
 
 ## 3) API and Frontend
 

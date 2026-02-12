@@ -33,11 +33,16 @@ class Settings(BaseSettings):
 
     ollama_base_url: str = Field(default="http://ollama:11434", alias="OLLAMA_BASE_URL")
     ollama_model: str = Field(default="llama3.2:3b", alias="OLLAMA_MODEL")
-    ollama_fallback_model: str = Field(default="phi3:mini", alias="OLLAMA_FALLBACK_MODEL")
+    ollama_fallback_model: str = Field(default="llama3.2:1b", alias="OLLAMA_FALLBACK_MODEL")
     ollama_timeout_seconds: int = Field(default=240, alias="OLLAMA_TIMEOUT_SECONDS")
     ollama_auto_pull: bool = Field(default=True, alias="OLLAMA_AUTO_PULL")
     gen_temperature: float = Field(default=0.1, alias="GEN_TEMPERATURE")
     gen_max_tokens: int = Field(default=450, alias="GEN_MAX_TOKENS")
+
+    langfuse_enabled: bool = Field(default=False, alias="LANGFUSE_ENABLED")
+    langfuse_host: str = Field(default="http://localhost:3000", alias="LANGFUSE_HOST")
+    langfuse_public_key: str = Field(default="", alias="LANGFUSE_PUBLIC_KEY")
+    langfuse_secret_key: str = Field(default="", alias="LANGFUSE_SECRET_KEY")
 
     random_seed: int = Field(default=42, alias="RANDOM_SEED")
 
