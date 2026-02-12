@@ -42,11 +42,13 @@ bash data/download_corpus.sh
 Prerequisites:
 - Docker + Docker Compose
 
+Configuration is loaded from root `.env` (copy from `.env.example` first).
 Backend dependency installation inside the container uses `uv`.
 
 Commands:
 
 ```bash
+cp .env.example .env
 bash data/download_corpus.sh
 docker compose up --build -d
 ```
@@ -138,6 +140,9 @@ Backend config template:
 
 Frontend config template:
 - `frontend/.env.example`
+
+Compose/runtime config template:
+- `.env.example` (copy to `.env`)
 
 Main adjustable knobs:
 - chunk size/overlap

@@ -17,6 +17,9 @@ Orchestration stack:
 - `Langfuse`: self-hosted observability stack in Docker Compose + optional tracing callbacks
 - `uv`: Python dependency installation/runtime command wrapper in backend workflows
 
+Configuration:
+- Runtime settings are centralized in root `.env` (loaded by Docker Compose via `env_file`).
+
 ### Ingestion
 
 - Parser: `pypdf` (`PdfReader`) for robust text extraction.

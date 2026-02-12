@@ -16,12 +16,8 @@ services:
   langfuse-postgres:
     image: postgres:17
     container_name: local-rag-langfuse-postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: "${LANGFUSE_POSTGRES_PASSWORD:-postgres}"
-      POSTGRES_DB: postgres
-      TZ: UTC
-      PGTZ: UTC
+    env_file:
+      - ./.env
     volumes:
       - langfuse_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -35,10 +31,8 @@ services:
     image: clickhouse/clickhouse-server:latest
     container_name: local-rag-langfuse-clickhouse
     user: "101:101"
-    environment:
-      CLICKHOUSE_DB: default
-      CLICKHOUSE_USER: clickhouse
-      CLICKHOUSE_PASSWORD: "${LANGFUSE_CLICKHOUSE_PASSWORD:-clickhouse}"
+    env_file:
+      - ./.env
     volumes:
       - langfuse_clickhouse_data:/var/lib/clickhouse
       - langfuse_clickhouse_logs:/var/log/clickhouse-server
@@ -53,11 +47,10 @@ services:
   langfuse-minio:
     image: cgr.dev/chainguard/minio:latest
     container_name: local-rag-langfuse-minio
+    env_file:
+      - ./.env
     entrypoint: sh
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
-    environment:
-      MINIO_ROOT_USER: "${LANGFUSE_MINIO_ROOT_USER:-minio}"
-      MINIO_ROOT_PASSWORD: "${LANGFUSE_MINIO_ROOT_PASSWORD:-miniosecret}"
     volumes:
       - langfuse_minio_data:/data
     healthcheck:
@@ -72,10 +65,10 @@ services:
     image: redis:7
     container_name: local-rag-langfuse-redis
     command: >
-      --requirepass ${LANGFUSE_REDIS_AUTH:-myredissecret}
+      --requirepass ${REDIS_AUTH:-myredissecret}
       --maxmemory-policy noeviction
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a ${LANGFUSE_REDIS_AUTH:-myredissecret} ping | grep PONG"]
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_AUTH:-myredissecret} ping | grep PONG"]
       interval: 3s
       timeout: 10s
       retries: 10
@@ -84,6 +77,8 @@ services:
   langfuse-worker:
     image: langfuse/langfuse-worker:3
     container_name: local-rag-langfuse-worker
+    env_file:
+      - ./.env
     depends_on: &langfuse_depends_on
       langfuse-postgres:
         condition: service_healthy
@@ -93,55 +88,16 @@ services:
         condition: service_healthy
       langfuse-redis:
         condition: service_healthy
-    environment: &langfuse_env
-      NEXTAUTH_URL: "http://localhost:${LANGFUSE_PORT:-3000}"
-      NEXTAUTH_SECRET: "${LANGFUSE_NEXTAUTH_SECRET:-mysecret}"
-      DATABASE_URL: "postgresql://postgres:${LANGFUSE_POSTGRES_PASSWORD:-postgres}@langfuse-postgres:5432/postgres"
-      SALT: "${LANGFUSE_SALT:-mysalt}"
-      ENCRYPTION_KEY: "${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}"
-      TELEMETRY_ENABLED: "false"
-      CLICKHOUSE_MIGRATION_URL: "clickhouse://clickhouse:${LANGFUSE_CLICKHOUSE_PASSWORD:-clickhouse}@langfuse-clickhouse:9000"
-      CLICKHOUSE_URL: "http://langfuse-clickhouse:8123"
-      CLICKHOUSE_USER: "clickhouse"
-      CLICKHOUSE_PASSWORD: "${LANGFUSE_CLICKHOUSE_PASSWORD:-clickhouse}"
-      CLICKHOUSE_CLUSTER_ENABLED: "false"
-      REDIS_HOST: "langfuse-redis"
-      REDIS_PORT: "6379"
-      REDIS_AUTH: "${LANGFUSE_REDIS_AUTH:-myredissecret}"
-      REDIS_TLS_ENABLED: "false"
-      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: "langfuse"
-      LANGFUSE_S3_EVENT_UPLOAD_REGION: "auto"
-      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: "${LANGFUSE_MINIO_ROOT_USER:-minio}"
-      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: "${LANGFUSE_MINIO_ROOT_PASSWORD:-miniosecret}"
-      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: "http://langfuse-minio:9000"
-      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
-      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: "events/"
-      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: "langfuse"
-      LANGFUSE_S3_MEDIA_UPLOAD_REGION: "auto"
-      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: "${LANGFUSE_MINIO_ROOT_USER:-minio}"
-      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: "${LANGFUSE_MINIO_ROOT_PASSWORD:-miniosecret}"
-      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: "http://langfuse-minio:9000"
-      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
-      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: "media/"
-      LANGFUSE_INIT_ORG_ID: "${LANGFUSE_INIT_ORG_ID:-}"
-      LANGFUSE_INIT_ORG_NAME: "${LANGFUSE_INIT_ORG_NAME:-}"
-      LANGFUSE_INIT_PROJECT_ID: "${LANGFUSE_INIT_PROJECT_ID:-}"
-      LANGFUSE_INIT_PROJECT_NAME: "${LANGFUSE_INIT_PROJECT_NAME:-}"
-      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: "${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:-}"
-      LANGFUSE_INIT_PROJECT_SECRET_KEY: "${LANGFUSE_INIT_PROJECT_SECRET_KEY:-}"
-      LANGFUSE_INIT_USER_EMAIL: "${LANGFUSE_INIT_USER_EMAIL:-}"
-      LANGFUSE_INIT_USER_NAME: "${LANGFUSE_INIT_USER_NAME:-}"
-      LANGFUSE_INIT_USER_PASSWORD: "${LANGFUSE_INIT_USER_PASSWORD:-}"
     restart: unless-stopped
 
   langfuse-web:
     image: langfuse/langfuse:3
     container_name: local-rag-langfuse-web
+    env_file:
+      - ./.env
     ports:
       - "${LANGFUSE_PORT:-3000}:3000"
     depends_on: *langfuse_depends_on
-    environment:
-      <<: *langfuse_env
     restart: unless-stopped
 
   backend:
@@ -149,40 +105,10 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     container_name: local-rag-backend
+    env_file:
+      - ./.env
     ports:
       - "${BACKEND_PORT:-8000}:8000"
-    environment:
-      APP_NAME: local-rag-qa
-      APP_ENV: docker
-      APP_HOST: 0.0.0.0
-      APP_PORT: 8000
-      LOG_LEVEL: INFO
-      DATA_DIR: /app/data
-      CORPUS_DIR: /app/data/corpus
-      CHROMA_DIR: /app/data/chroma
-      INDEX_MANIFEST_PATH: /app/data/index_manifest.json
-      CHROMA_ANONYMIZED_TELEMETRY: "false"
-      EMBEDDING_MODEL: sentence-transformers/all-MiniLM-L6-v2
-      BATCH_SIZE: 32
-      CHUNK_SIZE: 900
-      CHUNK_OVERLAP: 150
-      TOP_K: 4
-      USE_MMR: "false"
-      MMR_CANDIDATES: 12
-      MMR_LAMBDA: 0.6
-      MIN_SIMILARITY: 0.2
-      OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: llama3.2:3b
-      OLLAMA_FALLBACK_MODEL: llama3.2:1b
-      OLLAMA_TIMEOUT_SECONDS: 240
-      OLLAMA_AUTO_PULL: "true"
-      GEN_TEMPERATURE: 0.1
-      GEN_MAX_TOKENS: 450
-      LANGFUSE_ENABLED: "${LANGFUSE_ENABLED:-false}"
-      LANGFUSE_HOST: "${LANGFUSE_HOST:-http://langfuse-web:3000}"
-      LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
-      LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-}"
-      RANDOM_SEED: 42
     volumes:
       - ./data:/app/data
       - chroma_data:/app/data/chroma
@@ -203,10 +129,10 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
     container_name: local-rag-frontend
+    env_file:
+      - ./.env
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
-    environment:
-      VITE_BACKEND_URL: http://localhost:${BACKEND_PORT:-8000}
     depends_on:
       backend:
         condition: service_healthy
