@@ -18,7 +18,7 @@ Orchestration stack:
 - `uv`: Python dependency installation/runtime command wrapper in backend workflows
 
 Configuration:
-- Runtime settings are centralized in root `.env` (loaded by Docker Compose via `env_file`).
+- Runtime defaults are versioned in `.env.example`; optional local overrides can be set in root `.env` (loaded by Docker Compose via `env_file`).
 
 ### Ingestion
 
@@ -43,12 +43,14 @@ Reasoning:
 
 ### Embeddings
 
-Model: `sentence-transformers/all-MiniLM-L6-v2`.
+Model is configurable via runtime env (`EMBEDDING_MODEL`), with defaults in `.env.example` and optional overrides in `.env`.
+For the current evaluated run, the active model is:
+- `google/embeddinggemma-300m`
 
 Why:
-- Open-source and lightweight.
-- Good retrieval quality for short technical passages.
-- Fast CPU inference and stable local operation.
+- Open-source sentence-transformers-compatible embeddings.
+- Strong semantic quality on technical passages.
+- Works locally with Hugging Face cache persistence in Docker (`hf_cache` volume).
 
 The embedding pipeline uses LangChain `HuggingFaceEmbeddings` and is deterministic:
 - fixed random seed,
@@ -80,7 +82,7 @@ Telemetry is hard-disabled with a no-op Chroma telemetry client to avoid noisy r
 
 Runtime: `Ollama` service in Docker.
 
-Default model: `llama3.2:1b` (configurable), chosen for good local speed/memory on Apple Silicon laptops, with fallback (`llama3.2:1b`).
+Configured model for current run: `llama3.2:1b` (via `OLLAMA_MODEL`), chosen for good local speed/memory on Apple Silicon laptops.
 
 Prompt design enforces:
 - use context only,
@@ -124,7 +126,7 @@ Prompt design enforces:
 
 - `GET /health`
 - `POST /ingest` (idempotent, optional `force`)
-- `POST /query` → `{answer, sources[], session_id}` with scores + excerpts
+- `POST /query` → `{answer, model, sources[], session_id, rewritten_question}` with scores + excerpts
 - `GET /config` (safe runtime knobs)
 - `POST /eval/run` + `GET /eval/status/{job_id}` + `GET /eval/results/{job_id}` for async evaluation jobs
 - `GET /eval/artifact/{job_id}/{csv|markdown|jsonl}` for report files
@@ -173,6 +175,21 @@ Langfuse integration:
 ## 5) Results Summary
 
 Current run summary is in `docs/evaluation_results.md`.
+Run used for this document refresh:
+- Run ID: `backend-eval-01daf70d`
+- Timestamp: `2026-02-13T08:07:23Z`
+- Metric embedding model: `google/embeddinggemma-300m`
+
+Aggregate metrics:
+- Mean cosine similarity: `0.615`
+- Mean citation coverage: `1.000`
+- Mean source precision: `0.500`
+- Mean source F1: `0.611`
+- Mean answer citation presence: `0.778`
+- Mean required-term coverage: `0.300`
+- Mean rewrite-term coverage: `0.000`
+- Mean IDK correctness: `1.000`
+- Mean latency: `12325.979 ms`
 
 Interpretation guidance:
 - High cosine + high citation coverage indicates both answer quality and grounding.

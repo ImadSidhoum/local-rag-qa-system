@@ -17,7 +17,10 @@ services:
     image: postgres:17
     container_name: local-rag-langfuse-postgres
     env_file:
-      - ./.env
+      - path: ./.env.example
+        required: true
+      - path: ./.env
+        required: false
     volumes:
       - langfuse_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -32,7 +35,10 @@ services:
     container_name: local-rag-langfuse-clickhouse
     user: "101:101"
     env_file:
-      - ./.env
+      - path: ./.env.example
+        required: true
+      - path: ./.env
+        required: false
     volumes:
       - langfuse_clickhouse_data:/var/lib/clickhouse
       - langfuse_clickhouse_logs:/var/log/clickhouse-server
@@ -48,7 +54,10 @@ services:
     image: cgr.dev/chainguard/minio:latest
     container_name: local-rag-langfuse-minio
     env_file:
-      - ./.env
+      - path: ./.env.example
+        required: true
+      - path: ./.env
+        required: false
     entrypoint: sh
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
     volumes:
@@ -78,7 +87,10 @@ services:
     image: langfuse/langfuse-worker:3
     container_name: local-rag-langfuse-worker
     env_file:
-      - ./.env
+      - path: ./.env.example
+        required: true
+      - path: ./.env
+        required: false
     depends_on: &langfuse_depends_on
       langfuse-postgres:
         condition: service_healthy
@@ -94,7 +106,10 @@ services:
     image: langfuse/langfuse:3
     container_name: local-rag-langfuse-web
     env_file:
-      - ./.env
+      - path: ./.env.example
+        required: true
+      - path: ./.env
+        required: false
     ports:
       - "${LANGFUSE_PORT:-3000}:3000"
     depends_on: *langfuse_depends_on
@@ -106,13 +121,17 @@ services:
       dockerfile: backend/Dockerfile
     container_name: local-rag-backend
     env_file:
-      - ./.env
+      - path: ./.env.example
+        required: true
+      - path: ./.env
+        required: false
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./data:/app/data
       - ./scripts:/app/scripts:ro
       - chroma_data:/app/data/chroma
+      - hf_cache:/root/.cache/huggingface
     depends_on:
       ollama:
         condition: service_healthy
@@ -122,7 +141,8 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 15s
       timeout: 5s
-      retries: 10
+      retries: 20
+      start_period: 10m
     restart: unless-stopped
 
   frontend:
@@ -131,7 +151,10 @@ services:
       dockerfile: frontend/Dockerfile
     container_name: local-rag-frontend
     env_file:
-      - ./.env
+      - path: ./.env.example
+        required: true
+      - path: ./.env
+        required: false
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
     depends_on:
@@ -142,6 +165,7 @@ services:
 volumes:
   ollama_data:
   chroma_data:
+  hf_cache:
   langfuse_postgres_data:
   langfuse_clickhouse_data:
   langfuse_clickhouse_logs:

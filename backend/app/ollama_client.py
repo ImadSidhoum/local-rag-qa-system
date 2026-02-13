@@ -46,7 +46,7 @@ class OllamaClient:
         )
         response.raise_for_status()
 
-    def ensure_model(self, primary_model: str, fallback_model: str, auto_pull: bool) -> str:
+    def ensure_model(self, primary_model: str, auto_pull: bool) -> str:
         installed_models = self.list_models()
 
         if primary_model in installed_models:
@@ -55,10 +55,6 @@ class OllamaClient:
         if auto_pull:
             self.pull_model(primary_model)
             return primary_model
-
-        if fallback_model in installed_models:
-            logger.warning("Using fallback Ollama model: %s", fallback_model)
-            return fallback_model
 
         raise RuntimeError(
             f"Model '{primary_model}' is not available and auto-pull is disabled. "

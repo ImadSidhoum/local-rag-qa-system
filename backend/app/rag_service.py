@@ -12,7 +12,6 @@ from typing import Any, TypedDict
 
 from chromadb.config import Settings as ChromaSettings
 from langchain_chroma import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama
@@ -20,6 +19,7 @@ from langgraph.graph import END, StateGraph
 
 from app.chunking import split_documents
 from app.config import Settings
+from app.embeddings import load_hf_embeddings, resolve_hf_token
 from app.langfuse_utils import build_langfuse_callback
 from app.ollama_client import OllamaClient
 from app.pdf_ingestion import load_corpus_documents
@@ -102,10 +102,10 @@ class RagService:
         self._memory_lock = Lock()
         self._conversation_memory: dict[str, deque[tuple[str, str]]] = {}
 
-        self.embedding_model = HuggingFaceEmbeddings(
+        self.embedding_model, self.embedding_model_name = load_hf_embeddings(
             model_name=self.settings.embedding_model,
-            model_kwargs={"device": "cpu"},
-            encode_kwargs={"normalize_embeddings": True},
+            batch_size=self.settings.batch_size,
+            hf_token=resolve_hf_token(self.settings.hf_token or self.settings.huggingface_hub_token),
         )
         self.vectorstore = self._build_vectorstore()
 
@@ -194,7 +194,7 @@ class RagService:
                 }
                 for path in pdf_files
             ],
-            "embedding_model": self.settings.embedding_model,
+            "embedding_model": self.embedding_model_name,
             "chunk_size": self.settings.chunk_size,
             "chunk_overlap": self.settings.chunk_overlap,
             "collection_name": self.settings.chroma_collection_name,
@@ -270,7 +270,7 @@ class RagService:
                 "documents": len(pdf_files),
                 "pages": len(page_documents),
                 "chunks": len(chunks),
-                "embedding_model": self.settings.embedding_model,
+                "embedding_model": self.embedding_model_name,
                 "chunk_size": self.settings.chunk_size,
                 "chunk_overlap": self.settings.chunk_overlap,
             }
@@ -442,7 +442,6 @@ class RagService:
         try:
             model_name = self.ollama_client.ensure_model(
                 primary_model=self.settings.ollama_model,
-                fallback_model=self.settings.ollama_fallback_model,
                 auto_pull=self.settings.ollama_auto_pull,
             )
             rewritten = self._rewrite_question_with_llm(model_name, history, question, session_id)
@@ -524,7 +523,6 @@ class RagService:
         if not model_name:
             model_name = self.ollama_client.ensure_model(
                 primary_model=self.settings.ollama_model,
-                fallback_model=self.settings.ollama_fallback_model,
                 auto_pull=self.settings.ollama_auto_pull,
             )
 

@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     )
 
     embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2", alias="EMBEDDING_MODEL")
+    hf_token: str = Field(default="", alias="HF_TOKEN")
+    huggingface_hub_token: str = Field(default="", alias="HUGGINGFACE_HUB_TOKEN")
     batch_size: int = Field(default=32, alias="BATCH_SIZE")
     chunk_size: int = Field(default=900, alias="CHUNK_SIZE")
     chunk_overlap: int = Field(default=150, alias="CHUNK_OVERLAP")
@@ -45,7 +47,6 @@ class Settings(BaseSettings):
 
     ollama_base_url: str = Field(default="http://ollama:11434", alias="OLLAMA_BASE_URL")
     ollama_model: str = Field(default="llama3.2:1b", alias="OLLAMA_MODEL")
-    ollama_fallback_model: str = Field(default="llama3.2:1b", alias="OLLAMA_FALLBACK_MODEL")
     ollama_timeout_seconds: int = Field(default=240, alias="OLLAMA_TIMEOUT_SECONDS")
     ollama_auto_pull: bool = Field(default=True, alias="OLLAMA_AUTO_PULL")
     gen_temperature: float = Field(default=0.1, alias="GEN_TEMPERATURE")

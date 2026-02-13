@@ -43,14 +43,18 @@ bash data/download_corpus.sh
 Prerequisites:
 - Docker + Docker Compose
 
-Configuration is loaded from root `.env` (copy from `.env.example` first).
+Default runtime configuration is loaded from `.env.example`.
+If a root `.env` file exists, it is loaded as an override.
 Backend dependency installation inside the container uses `uv`.
 
 Commands:
 
 ```bash
-cp .env.example .env
+# optional override file:
+# cp .env.example .env
 bash data/download_corpus.sh
+# optional but recommended on first run (shows model download progress)
+bash scripts/warmup_models.sh
 docker compose up --build -d
 ```
 
@@ -131,6 +135,14 @@ uv run --with-requirements backend/requirements.txt python scripts/evaluate.py \
   --output-dir docs
 ```
 
+If you want evaluation to use the exact backend runtime config currently used by the running backend, run the backend job API and then download artifacts:
+
+```bash
+curl -X POST http://localhost:8000/eval/run \
+  -H "Content-Type: application/json" \
+  -d '{"auto_ingest": true}'
+```
+
 Outputs:
 - `docs/evaluation_results.csv`
 - `docs/evaluation_results.md`
@@ -198,6 +210,25 @@ Download artifact:
 curl -L http://localhost:8000/eval/artifact/<job_id>/markdown
 ```
 
+### Latest Baseline (Current Runtime Config)
+
+Last refreshed run:
+- Run: `backend-eval-01daf70d`
+- Timestamp (UTC): `2026-02-13T08:07:23Z`
+- Embedding model: `google/embeddinggemma-300m`
+- LLM: `llama3.2:1b`
+
+Aggregate:
+- Mean cosine similarity: `0.615`
+- Mean citation coverage: `1.000`
+- Mean source precision: `0.500`
+- Mean source F1: `0.611`
+- Mean answer citation presence: `0.778`
+- Mean required-term coverage: `0.300`
+- Mean rewrite-term coverage: `0.000`
+- Mean IDK correctness: `1.000`
+- Mean latency: `12325.979 ms`
+
 ## 7) Configuration
 
 Backend config template:
@@ -207,18 +238,21 @@ Frontend config template:
 - `frontend/.env.example`
 
 Compose/runtime config template:
-- `.env.example` (copy to `.env`)
+- `.env.example` (default runtime values used by compose)
+- `.env` (optional override, auto-loaded if present)
 
 Main adjustable knobs:
 - chunk size/overlap
 - top-k retrieval
 - optional MMR retrieval
 - evaluation dataset path (`EVAL_DATASET_PATH`) and output directory (`EVAL_OUTPUT_DIR`)
+- embedding model (`EMBEDDING_MODEL`)
 - Chroma telemetry mode (`CHROMA_PRODUCT_TELEMETRY_IMPL`, default no-op)
+- HF auth token for gated embedding models (`HF_TOKEN` / `HUGGINGFACE_HUB_TOKEN`)
 - temperature/max tokens
 - query rewrite (follow-up disambiguation before retrieval)
 - memory toggle/window size
-- Ollama model and fallback model
+- Ollama model
 - Langfuse tracing flags/keys
 
 ## 8) Langfuse (Self-Hosted + Optional Tracing)
@@ -228,7 +262,7 @@ Langfuse services are included in `docker compose` and launch with the default s
 To enable backend tracing:
 1. Open `http://localhost:3000` and create/login to Langfuse.
 2. Create a project and copy the project public/secret API keys.
-3. In `.env`, set the tracing variables:
+3. In your runtime env file (recommended: `.env` override), set the tracing variables:
 
 ```bash
 LANGFUSE_ENABLED=true
@@ -265,7 +299,7 @@ This Langfuse logging path is provided by `scripts/evaluate.py` (`--langfuse`).
 
 Memory is session-based and in-process (kept while backend container is running).
 
-Required `.env` vars:
+Required runtime vars:
 
 ```bash
 MEMORY_ENABLED=true
@@ -287,7 +321,7 @@ Example:
 - Q2: `What's its complexity?`
 - Rewritten retrieval query: `What is the complexity of a self-attention layer?`
 
-Control via `.env`:
+Control via runtime vars:
 
 ```bash
 QUERY_REWRITE_ENABLED=true
@@ -306,9 +340,57 @@ The backend can auto-pull (`OLLAMA_AUTO_PULL=true`). If disabled, pull manually:
 docker compose exec ollama ollama pull llama3.2:1b
 ```
 
+### First startup is slow / how to see download progress
+
+On first run, model downloads can take several minutes.
+
+Show live logs:
+
+```bash
+docker compose logs -f ollama backend
+```
+
+Warm up both models with explicit progress output:
+
+```bash
+bash scripts/warmup_models.sh
+```
+
+`warmup_models.sh` reads model names from `.env` when present, otherwise from `.env.example`.
+
+Then launch:
+
+```bash
+docker compose up --build -d
+```
+
+Note: backend healthcheck includes a long startup grace period to avoid false `unhealthy` during first model download.
+
+### Gated embedding model fails (401 / Unauthorized)
+
+If `EMBEDDING_MODEL` points to a gated Hugging Face model, set one of:
+
+```bash
+HF_TOKEN=hf_xxx
+# or
+HUGGINGFACE_HUB_TOKEN=hf_xxx
+```
+
+Also ensure your HF account has accepted access to the model page, then rebuild backend:
+
+```bash
+docker compose up -d --build --force-recreate backend
+```
+
+If you do not need that gated model, set:
+
+```bash
+EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+```
+
 ### Apple Silicon / low-RAM machine
 
-Use a smaller model in `.env`:
+Use a smaller model in runtime config (typically `.env` override):
 - `OLLAMA_MODEL=llama3.2:1b`
 
 Then restart backend:

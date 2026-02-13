@@ -77,14 +77,15 @@ def health() -> HealthResponse:
 
 @app.get("/config", response_model=ConfigResponse)
 def config() -> ConfigResponse:
+    service = get_rag_service()
     exposed = {
-        "embedding_model": settings.embedding_model,
+        "embedding_model": service.embedding_model_name,
+        "requested_embedding_model": settings.embedding_model,
         "chunk_size": settings.chunk_size,
         "chunk_overlap": settings.chunk_overlap,
         "top_k": settings.top_k,
         "use_mmr": settings.use_mmr,
         "ollama_model": settings.ollama_model,
-        "ollama_fallback_model": settings.ollama_fallback_model,
         "temperature": settings.gen_temperature,
         "max_tokens": settings.gen_max_tokens,
         "query_rewrite_enabled": settings.query_rewrite_enabled,

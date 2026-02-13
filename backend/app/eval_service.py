@@ -15,6 +15,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 
 from app.config import Settings
+from app.embeddings import load_sentence_transformer, resolve_hf_token
 from app.rag_service import RagService
 from app.schemas import EvalRunRequest
 
@@ -346,7 +347,7 @@ class EvaluationService:
             auto_ingest = bool(options.get("auto_ingest", True))
             default_session_id = options.get("default_session_id")
             session_prefix = str(options.get("session_prefix") or "eval")
-            embedding_model_name = str(options.get("embedding_model") or self.settings.embedding_model)
+            embedding_model_name = str(options.get("embedding_model") or self.rag_service.embedding_model_name)
 
             self._update_job(
                 job_id,
@@ -367,7 +368,10 @@ class EvaluationService:
             total = len(samples)
             self._update_job(job_id, total=total)
 
-            model = SentenceTransformer(embedding_model_name)
+            metric_model, resolved_metric_model_name = load_sentence_transformer(
+                model_name=embedding_model_name,
+                hf_token=resolve_hf_token(self.settings.hf_token or self.settings.huggingface_hub_token),
+            )
             conversation_sessions: dict[str, str] = {}
             rows: list[dict[str, Any]] = []
             predictions: list[dict[str, Any]] = []
@@ -412,7 +416,7 @@ class EvaluationService:
                     for source in query_result.sources
                 ]
 
-                cosine = _cosine_similarity(model, expected_answer, generated_answer)
+                cosine = _cosine_similarity(metric_model, expected_answer, generated_answer)
                 recall, precision, source_f1 = _source_recall_precision_f1(expected_sources, predicted_sources)
                 answer_has_citation = 1.0 if CITATION_PATTERN.search(generated_answer) else 0.0
                 required_term_coverage = _optional_ratio(required_terms, generated_answer)
@@ -496,7 +500,7 @@ class EvaluationService:
                 summary=summary,
                 run_name=run_name,
                 dataset_path=dataset_path,
-                embedding_model=embedding_model_name,
+                embedding_model=resolved_metric_model_name,
             )
             self._write_predictions_jsonl(predictions, jsonl_path)
 
